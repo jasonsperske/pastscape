@@ -347,9 +347,9 @@ html, body {
   font: 9px var(--mono-font);
 }
 .ps-tree-row .twisty.has-kids {
-  background: var(--window);
   line-height: 9px;
   cursor: pointer;
+  padding-left: 4px;
 }
 .ps-tree-row svg.ficon { width: 16px; height: 16px; flex: none; }
 .ps-tree-row .fname { padding: 0 2px; }
