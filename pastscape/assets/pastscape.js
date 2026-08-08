@@ -37,7 +37,8 @@
     searchMeta: null,
     shardCache: {},
     docs: null,
-    collapsed: {},
+    collapsed: {},        // threaded message groups
+    treeCollapsed: {},    // collapsed folder branches
     read: {},
     lastQuery: "",
     results: [],
@@ -149,15 +150,64 @@
 
   // ============================================================== folder tree
 
+  var FOLDER_ICONS = {
+    "inbox": "ic-inbox", "unsent messages": "ic-outbox", "drafts": "ic-drafts",
+    "templates": "ic-templates", "sent": "ic-sent", "trash": "ic-trash",
+    "junk": "ic-junk", "archive": "ic-archive"
+  };
+  var RE_YEAR = /^(19|20)\d\d$/;
+
+  /* Matched by name at any depth: once the tree is grouped by year the real
+     Inbox lives at "2011/Inbox", and it should still look like an inbox. */
   function folderIcon(f) {
-    var name = f.name.toLowerCase();
-    if (f.depth > 0) return "ic-folder";
-    var map = {
-      "inbox": "ic-inbox", "unsent messages": "ic-outbox", "drafts": "ic-drafts",
-      "templates": "ic-templates", "sent": "ic-sent", "trash": "ic-trash",
-      "junk": "ic-junk", "archive": "ic-archive", "samples": "ic-folder"
-    };
-    return map[name] || "ic-folder";
+    if (RE_YEAR.test(f.name)) return "ic-archive";
+    return FOLDER_ICONS[f.name.toLowerCase()] || "ic-folder";
+  }
+
+  /* An archive spanning twenty years has twenty top-level folders, each with
+     its own Inbox/Sent/Trash. Rendering that flat and permanently expanded is
+     unusable, so the tree collapses for real. */
+
+  function childrenOf(path) {
+    return app.folders.filter(function (o) { return o.parent === path; });
+  }
+
+  function hasChildren(path) {
+    return app.folders.some(function (o) { return o.parent === path; });
+  }
+
+  function ancestorsOf(path) {
+    var parts = path.split("/"), out = [];
+    for (var i = 1; i < parts.length; i++) out.push(parts.slice(0, i).join("/"));
+    return out;
+  }
+
+  function isHidden(f) {
+    return ancestorsOf(f.path).some(function (a) { return app.treeCollapsed[a]; });
+  }
+
+  function expandTo(path) {
+    ancestorsOf(path).forEach(function (a) { delete app.treeCollapsed[a]; });
+  }
+
+  /* Unread sitting inside a collapsed branch would otherwise be invisible. */
+  function unreadUnder(f) {
+    var total = f.unread || 0;
+    childrenOf(f.path).forEach(function (kid) { total += unreadUnder(kid); });
+    return total;
+  }
+
+  function initTreeCollapse() {
+    // Open the first top-level folder -- the most recent year -- and close the
+    // rest, so the tree starts at a readable size whatever the archive spans.
+    var tops = app.folders.filter(function (f) { return f.depth === 0 && hasChildren(f.path); });
+    tops.slice(1).forEach(function (f) { app.treeCollapsed[f.path] = true; });
+  }
+
+  function toggleFolder(path) {
+    if (app.treeCollapsed[path]) delete app.treeCollapsed[path];
+    else app.treeCollapsed[path] = true;
+    renderTree();
   }
 
   function renderTree() {
@@ -171,19 +221,38 @@
     host.appendChild(head);
 
     app.folders.forEach(function (f) {
+      if (isHidden(f)) return;
+
       var row = el("div", "ps-tree-row");
       row.style.paddingLeft = (10 + f.depth * 14) + "px";
       row.dataset.slug = f.slug;
-      if (f.unread > 0) row.classList.add("unread");
       if (app.folder && app.folder.slug === f.slug) row.classList.add("selected");
 
-      var hasKids = app.folders.some(function (o) { return o.parent === f.path; });
-      var tw = el("span", "twisty" + (hasKids ? " has-kids" : ""), hasKids ? "−" : "");
+      var kids = hasChildren(f.path);
+      var collapsed = !!app.treeCollapsed[f.path];
+      var tw = el("span", "twisty" + (kids ? " has-kids" : ""), kids ? (collapsed ? "+" : "−") : "");
+      if (kids) {
+        tw.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          toggleFolder(f.path);
+        });
+      }
       row.appendChild(tw);
       row.appendChild(icon(folderIcon(f), "ficon"));
       row.appendChild(el("span", "fname", f.name));
-      if (f.unread > 0) row.appendChild(el("span", "fcount", "(" + f.unread + ")"));
-      row.addEventListener("click", function () { selectFolder(f.slug); });
+
+      var badge = collapsed ? unreadUnder(f) : f.unread;
+      if (badge > 0) {
+        row.classList.add("unread");
+        row.appendChild(el("span", "fcount", "(" + badge + ")"));
+      }
+
+      row.addEventListener("click", function () {
+        // A year folder holds no mail of its own; clicking it should open the
+        // branch rather than dead-end on an empty message list.
+        if (!f.count && kids) toggleFolder(f.path);
+        else selectFolder(f.slug);
+      });
       host.appendChild(row);
     });
 
@@ -204,6 +273,7 @@
     if (!f) return;
     app.folder = f;
     app.selected = -1;
+    expandTo(f.path);
     renderTree();
     $("#ps-folder-title").textContent = f.path;
     document.title = "Pastscape - " + f.path;
@@ -477,6 +547,7 @@
       var f = app.folders.find(function (o) { return o.path === meta.folder; });
       if (!f) return;
       app.folder = f;
+      expandTo(f.path);
       renderTree();
       $("#ps-folder-title").textContent = f.path;
       return loadFolderRows(f).then(function (rows) {
@@ -793,6 +864,7 @@
       var f = app.byslug[h.slug];
       if (f) {
         app.folder = f;
+        expandTo(f.path);
         renderTree();
         $("#ps-folder-title").textContent = f.path;
         app.rows = app.listCache[h.slug] || [];
@@ -1067,6 +1139,7 @@
         // Reflect locally-stored read marks in the initial counts.
         app.byslug[f.slug] = f;
       });
+      initTreeCollapse();
       $("#ps-title-text").textContent = (cfg.title || "Pastscape") + " - Pastscape Messenger";
       $("#ps-built").textContent = "Built " + (cfg.built || "").slice(0, 10);
       $("#ps-total").textContent = cfg.totalMessages + " messages";

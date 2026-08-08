@@ -215,10 +215,11 @@ def test_takeout_builds_a_site_with_a_folder_tree(tmp_path):
     import json
     cfg = json.loads((out / "data" / "folders.json").read_text("utf-8"))
     paths = [f["path"] for f in cfg["folders"]]
-    # Communicator's own folders come first, then the Gmail labels.
-    assert paths[:5] == ["Inbox", "Drafts", "Sent", "Trash", "Junk"]
-    assert "Receipts" in paths
-    assert "Projects/Pastscape" in paths
+    # Grouped by year, then Communicator's own folders, then the Gmail labels.
+    assert paths[:6] == ["2008", "2008/Inbox", "2008/Drafts", "2008/Sent",
+                         "2008/Trash", "2008/Junk"]
+    assert "2008/Receipts" in paths
+    assert "2008/Projects/Pastscape" in paths
 
 
 def test_takeout_rebuild_is_incremental(tmp_path):
@@ -254,16 +255,16 @@ def test_intermediate_label_folders_are_created(tmp_path):
     cfg = json.loads((out / "data" / "folders.json").read_text("utf-8"))
     by_path = {f["path"]: f for f in cfg["folders"]}
 
-    assert "Projects" in by_path, "parent folder missing from the tree"
-    assert by_path["Projects"]["count"] == 0
-    assert by_path["Projects"]["depth"] == 0
-    assert by_path["Projects"]["parent"] is None
+    assert "2008/Projects" in by_path, "parent folder missing from the tree"
+    assert by_path["2008/Projects"]["count"] == 0
+    assert by_path["2008/Projects"]["depth"] == 1
+    assert by_path["2008/Projects"]["parent"] == "2008"
 
-    child = by_path["Projects/Pastscape"]
-    assert child["depth"] == 1
-    assert child["parent"] == "Projects"
+    child = by_path["2008/Projects/Pastscape"]
+    assert child["depth"] == 2
+    assert child["parent"] == "2008/Projects"
     assert child["count"] == 1
 
     # Placeholder folders still get a listing file, so clicking one works.
-    assert (out / by_path["Projects"]["file"]).is_file()
-    assert json.loads((out / by_path["Projects"]["file"]).read_text())["rows"] == []
+    assert (out / by_path["2008/Projects"]["file"]).is_file()
+    assert json.loads((out / by_path["2008/Projects"]["file"]).read_text())["rows"] == []

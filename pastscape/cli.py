@@ -59,6 +59,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         news_host=args.news_host,
         prune=args.prune,
         force=args.force,
+        year_folders=args.year_folders,
     )
 
     print(f"\nPastscape: {stats.summary()}")
@@ -167,6 +168,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="force the source reader instead of sniffing")
     b.add_argument("--folder-prefix", default="",
                    help="nest every folder under this path, e.g. 'Archive 2004'")
+    b.add_argument("--no-year-folders", dest="year_folders", action="store_false",
+                   help="do not group the tree by year; put Inbox, Sent etc. at the root")
     b.add_argument("--news-host", default="",
                    help="decorative news server entry in the folder tree, e.g. news.server.com")
     b.add_argument("--limit", type=int, default=0, help="stop after N messages (for testing)")

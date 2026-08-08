@@ -79,6 +79,7 @@ pastscape build SOURCE [SOURCE ...] -o site [options]
   -t, --title TEXT          archive title (title bar + folder tree root)
       --type KIND           force a reader instead of sniffing
       --folder-prefix PATH  nest everything under e.g. "Archive 2004"
+      --no-year-folders     put Inbox/Sent at the root instead of grouping by year
       --news-host HOST      decorative news server in the tree, like the original
       --prune               delete pages for messages no longer in the sources
       --force               rewrite every page (keeps first-seen dates)
@@ -90,6 +91,32 @@ pastscape info site         what is published, per folder
 pastscape detect SOURCE     which reader would handle this
 pastscape serve site        preview an already-built archive
 ```
+
+### The folder tree
+
+The root of the tree is one folder per year, newest first, going back to the
+oldest message in the archive. Each year holds that year's own folders:
+
+```
+Local Mail
+  2026          Inbox  Sent  Trash
+  2025          Inbox  Sent  Trash
+  2024          Inbox  Sent  Trash  Inbox/Projects
+  …
+  2003          Inbox  Sent
+```
+
+A message's year comes from its `Date:` header; anything undated lands in an
+`Undated` folder that sorts after every year. Years with no mail at all get no
+folder — the range is bounded by the oldest and newest message, not filled in.
+
+The year folders hold no messages themselves, so clicking one opens the branch
+rather than dead-ending on an empty list. Only the most recent year starts
+expanded: a twenty-year archive is around 80 folders, and rendering them all
+at once is unreadable. Everything that navigates — selecting a folder, opening
+a deep link, jumping to a search hit — expands whatever branch it lands in.
+
+Pass `--no-year-folders` for the flat shape, with Inbox and Sent at the root.
 
 ### Merging sources
 

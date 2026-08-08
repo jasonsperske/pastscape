@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .model import Message, compute_uid, ensure_tz, normalize_folder
+from .model import Message, compute_uid, ensure_tz, normalize_folder, year_folder
 from .render import SiteBuilder
 from .search import build_index
 from .sources import read_source, source_fingerprint
@@ -44,8 +44,24 @@ class BuildStats:
         return ", ".join(bits)
 
 
+def place(msg: Message, folder_prefix: str = "", year_folders: bool = True) -> str:
+    """Work out a message's folder path.
+
+    Normalisation has to happen before the year is prepended: it only maps the
+    leading segment, so "Deleted Items" becomes "Trash" while "2008/Deleted
+    Items" would not.
+    """
+    folder = normalize_folder(msg.folder)
+    if year_folders:
+        folder = f"{year_folder(msg)}/{folder}"
+    if folder_prefix:
+        folder = f"{folder_prefix.strip('/')}/{folder}"
+    return folder
+
+
 def collect(sources: list[Path], kinds: dict[Path, str] | None = None,
-            limit: int = 0, folder_prefix: str = "") -> tuple[list[Message], BuildStats]:
+            limit: int = 0, folder_prefix: str = "",
+            year_folders: bool = True) -> tuple[list[Message], BuildStats]:
     """Read every source, assign uids, drop cross-source duplicates."""
     stats = BuildStats()
     seen: dict[str, Message] = {}
@@ -56,10 +72,8 @@ def collect(sources: list[Path], kinds: dict[Path, str] | None = None,
         count = 0
         try:
             for msg in read_source(src, kinds.get(src)):
-                msg.folder = normalize_folder(
-                    f"{folder_prefix}/{msg.folder}" if folder_prefix else msg.folder
-                )
                 msg.date = ensure_tz(msg.date)
+                msg.folder = place(msg, folder_prefix, year_folders)
                 msg.uid = compute_uid(msg)
                 if msg.uid in seen:
                     stats.duplicates += 1
@@ -90,14 +104,15 @@ def build_site(sources: list[Path], site_dir: Path, *, title: str = "Local Mail"
                kinds: dict[Path, str] | None = None, limit: int = 0,
                folder_prefix: str = "", block_remote: bool = True,
                news_host: str = "", prune: bool = False,
-               force: bool = False) -> BuildStats:
+               force: bool = False, year_folders: bool = True) -> BuildStats:
     site_dir.mkdir(parents=True, exist_ok=True)
     # --force rewrites every page but still reads the manifest: first_seen is
     # history we should not throw away just because the renderer changed.
     manifest = Manifest.load(site_dir)
     known = manifest.messages
 
-    messages, stats = collect(sources, kinds=kinds, limit=limit, folder_prefix=folder_prefix)
+    messages, stats = collect(sources, kinds=kinds, limit=limit,
+                              folder_prefix=folder_prefix, year_folders=year_folders)
 
     if not messages:
         if known and not prune:

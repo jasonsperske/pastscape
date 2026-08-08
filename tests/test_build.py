@@ -46,9 +46,11 @@ def test_folders_json_shape(site):
     assert cfg["title"] == "Local Mail"
     assert cfg["totalMessages"] == 13
     paths = [f["path"] for f in cfg["folders"]]
-    assert paths[0] == "Inbox"          # Communicator order, not alphabetical
-    assert "Inbox/Projects" in paths
-    assert "Trash" in paths
+    # The tree is grouped by year; the sample corpus is all from 1997.
+    assert paths[0] == "1997"
+    assert paths[1] == "1997/Inbox"      # Communicator order, not alphabetical
+    assert "1997/Inbox/Projects" in paths
+    assert "1997/Trash" in paths
     for f in cfg["folders"]:
         assert (site / f["file"]).is_file()
 

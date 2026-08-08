@@ -172,15 +172,30 @@ def normalize_folder(name: str) -> str:
     return f"{head}/{tail}" if tail else head
 
 
+UNDATED_FOLDER = "Undated"
+_RE_YEAR = re.compile(r"(?:19|20)\d\d")
+
+
+def year_folder(msg: "Message") -> str:
+    """Which year bucket a message belongs to."""
+    return str(msg.date.year) if msg.date else UNDATED_FOLDER
+
+
 def folder_sort_key(path: str) -> tuple:
-    """Canonical folders first in Communicator's order, then alphabetical."""
-    parts = path.split("/")
+    """Years newest-first, then Communicator's folders in its order, then A-Z.
+
+    Applied per path segment and at every depth, so "2011/Sent" sorts after
+    "2011/Inbox" the same way a top-level Sent would -- and an archive that
+    spans twenty years opens on the most recent one rather than on 2004.
+    """
     key: list = []
-    for depth, part in enumerate(parts):
-        if depth == 0 and part in CANONICAL_FOLDER_ORDER:
-            key.append((0, CANONICAL_FOLDER_ORDER.index(part), ""))
+    for part in path.split("/"):
+        if _RE_YEAR.fullmatch(part):
+            key.append((0, -int(part), ""))
+        elif part in CANONICAL_FOLDER_ORDER:
+            key.append((1, CANONICAL_FOLDER_ORDER.index(part), ""))
         else:
-            key.append((1, 0, part.lower()))
+            key.append((2, 0, part.lower()))
     return tuple(key)
 
 
