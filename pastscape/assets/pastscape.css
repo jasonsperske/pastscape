@@ -682,3 +682,132 @@ input[type="text"]:focus, input[type="search"]:focus { outline: 1px dotted #000;
   .ps-tbtn .lbl { display: none; }
   .ps-tbtn { min-width: 32px; }
 }
+
+/* ==========================================================================
+   Print
+   --------------------------------------------------------------------------
+   Paper gets the message and nothing else: no title bar, no toolbar, no
+   folder tree, no message list. The 1997 costume is for the screen.
+
+   The layout has to be undone as well as hidden. On screen the window is a
+   position:absolute flex box pinned to the viewport with its panes scrolling
+   internally, so without these resets a long message prints exactly one
+   pane-height of itself and stops.
+   ========================================================================== */
+
+@media print {
+  @page { margin: 1.5cm; }
+
+  html, body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+    color: #000;
+    font-family: var(--serif-font);
+    font-size: 11pt;
+  }
+
+  /* The emulated application chrome. */
+  .ps-titlebar,
+  .ps-menubar,
+  .ps-toolbar,
+  .ps-locbar,
+  .ps-pane-tree,
+  .ps-pane-list,
+  .ps-splitter-v,
+  .ps-splitter-h,
+  .ps-statusbar,
+  .ps-modal-back,
+  .ps-noscript,
+  .ps-breadcrumb,
+  .ps-page-nav,
+  /* ...and the on-screen affordances inside the message itself. */
+  .ps-msg-toolbar-note,
+  .ps-remote-bar,
+  .ps-source-toggle,
+  img.ps-blocked-img {
+    display: none !important;
+  }
+
+  /* Unpin the window and let every container grow to its content. */
+  .ps-window {
+    position: static;
+    display: block;
+    border: 0;
+    box-shadow: none;
+    background: #fff;
+  }
+  .ps-body,
+  .ps-right,
+  .ps-pane-msg,
+  .ps-page-scroll,
+  .ps-scroll {
+    display: block;
+    position: static;
+    flex: none;
+    height: auto;
+    max-height: none;
+    min-height: 0;
+    width: auto;
+    overflow: visible;
+    border: 0;
+    box-shadow: none;
+    background: #fff;
+    padding: 0;
+  }
+  .ps-page-inner { max-width: none; margin: 0; padding: 0; }
+  .ps-article { padding: 0; font-size: 11pt; }
+
+  /* Keep the Subject/Date/From block with the text it belongs to. */
+  .ps-msg-headers {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 12pt;
+    padding-bottom: 6pt;
+    border-bottom: 1pt solid #000;
+    font-size: 11pt;
+  }
+  .ps-msg-headers a { color: #000; text-decoration: none; }
+
+  .ps-msg-body { font-size: 11pt; line-height: 1.4; }
+  .ps-msg-body.plain { font-family: var(--mono-font); font-size: 10pt; }
+  .ps-msg-body a { color: #000; text-decoration: underline; }
+  /* A printed link is useless without its target. Only body links, and only
+     external ones -- mailto: addresses are already spelled out as the text. */
+  .ps-msg-body a[href^="http"]::after {
+    content: " <" attr(href) ">";
+    font-family: var(--mono-font);
+    font-size: 8pt;
+    word-break: break-all;
+  }
+  .ps-msg-body img { max-width: 100%; }
+  .ps-msg-body .ps-quote,
+  .ps-msg-body .ps-quote-1,
+  .ps-msg-body .ps-quote-2,
+  .ps-msg-body .ps-quote-3,
+  .ps-msg-body .ps-quote-4,
+  .ps-msg-body .ps-quote-5 {
+    color: #000;
+    border-left: 2pt solid #999;
+    padding-left: 6pt;
+  }
+
+  .ps-attachments { border-top: 1pt solid #000; }
+  .ps-attachments li {
+    background: none;
+    border: 0;
+    padding: 0 12pt 0 0;
+    break-inside: avoid;
+  }
+  .ps-attachments a { color: #000; text-decoration: none; }
+
+  /* If the reader expanded the original headers, print them in full rather
+     than clipped to the on-screen scroll box. */
+  .ps-source {
+    max-height: none;
+    overflow: visible;
+    background: none;
+    border: 1pt solid #999;
+    font-size: 8pt;
+  }
+}
