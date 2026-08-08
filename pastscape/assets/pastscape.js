@@ -595,9 +595,14 @@
     window.location.href = url;
   }
 
+  /* Buttons that need a selected message to make sense. Anything the archive
+     cannot do at all (New Msg, File, Delete, Stop) is rendered disabled and
+     must stay out of this list -- selecting a message would re-enable it. */
+  var SELECTION_BUTTONS = ["btn-reply", "btn-replyall", "btn-forward", "btn-print"];
+
   function updateToolbarState() {
     var has = !!currentMeta;
-    ["btn-reply", "btn-replyall", "btn-forward", "btn-print", "btn-file"].forEach(function (id) {
+    SELECTION_BUTTONS.forEach(function (id) {
       var b = document.getElementById(id);
       if (b) b.disabled = !has;
     });
@@ -960,6 +965,8 @@
       case "sortdate": app.sortCol = "date"; applyView(); break;
       case "sortsubject": app.sortCol = "subject"; applyView(); break;
       case "sortsender": app.sortCol = "sender"; applyView(); break;
+      // Both buttons ship disabled, so these are only reachable if someone
+      // re-enables them. Kept so that doing so degrades to an explanation.
       case "file":
       case "delete":
         status("The archive is read-only.");

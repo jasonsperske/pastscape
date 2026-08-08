@@ -185,7 +185,7 @@ MESSENGER_TOOLBAR = [
     ("btn-reply", "ic-reply", "Reply", "reply", False),
     ("btn-replyall", "ic-replyall", "Reply All", "replyall", False),
     ("btn-forward", "ic-forward", "Forward", "forward", False),
-    ("btn-file", "ic-file", "File", "file", False),
+    ("btn-file", "ic-file", "File", "file", True),
     ("btn-next", "ic-next", "Next", "nextunread", False),
     ("btn-print", "ic-print", "Print", "print", False),
     ("btn-search", "ic-search", "Search", "search", False),

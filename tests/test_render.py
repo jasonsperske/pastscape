@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, unquote, urlparse
 
@@ -112,7 +113,7 @@ def test_get_msg_is_not_in_the_toolbar():
 
 def test_read_only_buttons_are_disabled():
     disabled = {b[0] for b in MESSENGER_TOOLBAR if b[4]}
-    assert {"btn-delete", "btn-newmsg", "btn-stop"} <= disabled
+    assert {"btn-delete", "btn-file", "btn-newmsg", "btn-stop"} <= disabled
 
     page = build_index_page("Local Mail", read_asset("icons.svg"))
     delete_btn = page.split('id="btn-delete"')[1].split(">")[0]
@@ -128,6 +129,20 @@ def test_delete_menu_item_is_greyed_out_too():
     page = build_index_page("Local Mail", read_asset("icons.svg"))
     item = page.split("Delete Message")[0].split('<div class="ps-menu-item')[-1]
     assert "disabled" in item
+
+
+def test_client_never_re_enables_a_disabled_button():
+    """The client re-enables selection-dependent buttons when a message is
+    opened. A permanently-disabled button listed there would come back to
+    life on the first click, which is exactly what happened to File."""
+    js = read_asset("pastscape.js")
+    listed = re.search(r"var SELECTION_BUTTONS = \[(.*?)\];", js, re.S)
+    assert listed, "SELECTION_BUTTONS not found in pastscape.js"
+    selection_driven = set(re.findall(r'"([\w-]+)"', listed.group(1)))
+
+    disabled = {b[0] for b in MESSENGER_TOOLBAR if b[4]}
+    clash = disabled & selection_driven
+    assert not clash, f"{clash} ship disabled but the client re-enables them"
 
 
 def test_every_toolbar_icon_exists_in_the_sprite():
