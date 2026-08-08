@@ -275,10 +275,13 @@ html, body {
   padding: 2px;
   gap: 0;
 }
-.ps-pane-tree { width: 175px; min-width: 60px; display: flex; flex-direction: column; }
+/* flex: none on the tree matters: without it a message whose content has a
+   wide min-content (a fixed-width table, a long unbroken URL) shrinks the
+   folder pane down to nothing. Its width is set by the splitter drag. */
+.ps-pane-tree { flex: none; width: 175px; min-width: 60px; display: flex; flex-direction: column; }
 .ps-right { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
-.ps-pane-list { height: 45%; min-height: 60px; display: flex; flex-direction: column; }
-.ps-pane-msg { flex: 1 1 auto; min-height: 60px; display: flex; flex-direction: column; }
+.ps-pane-list { height: 45%; min-height: 60px; min-width: 0; display: flex; flex-direction: column; }
+.ps-pane-msg { flex: 1 1 auto; min-height: 60px; min-width: 0; display: flex; flex-direction: column; }
 
 .ps-splitter-v { width: 5px; flex: none; cursor: col-resize; background: var(--face); }
 .ps-splitter-h { height: 5px; flex: none; cursor: row-resize; background: var(--face); }
@@ -433,7 +436,10 @@ html, body {
 }
 .ps-edit-badge svg { width: 16px; height: 16px; }
 
-.ps-msg-body { font-size: 12px; line-height: 1.35; }
+.ps-msg-body { font-size: 12px; line-height: 1.35; overflow-wrap: break-word; }
+/* Mail is full of 700px-wide layout tables; let them scroll rather than force
+   the whole window sideways. */
+.ps-msg-body > table { display: block; max-width: 100%; overflow-x: auto; }
 .ps-msg-body.plain { font-family: var(--mono-font); font-size: 13px; white-space: normal; }
 .ps-msg-body .ps-line { min-height: 1.35em; }
 .ps-msg-body .ps-quote { color: #660066; }

@@ -9,9 +9,12 @@ clicks "Show images" -- which also happens to match how Communicator behaved.
 
 from __future__ import annotations
 
+import logging
 import re
-from html import escape
+from html import escape, unescape
 from html.parser import HTMLParser
+
+log = logging.getLogger("pastscape.sanitize")
 
 ALLOWED_TAGS = {
     "a", "abbr", "address", "b", "big", "blockquote", "br", "caption", "center",
@@ -25,9 +28,15 @@ ALLOWED_TAGS = {
 VOID_TAGS = {"br", "hr", "img", "col", "wbr"}
 
 # Tags whose *content* must go too, not just the tag.
-DROP_CONTENT_TAGS = {"script", "style", "head", "title", "meta", "link", "object",
-                     "embed", "applet", "iframe", "frameset", "frame", "noscript",
-                     "svg", "math", "form", "input", "button", "select", "textarea"}
+#
+# Everything here must have a closing tag. A void element like <meta> would
+# open a suppression that never closes and swallow the rest of the document --
+# and real mail is full of <meta> in an unclosed <head>. Void and structural
+# tags (html, head, body, meta, link, base, form, input, embed, frame) are left
+# out on purpose: they fall through to the default path for unrecognised tags,
+# which drops the tag and keeps whatever is inside it.
+DROP_CONTENT_TAGS = {"script", "style", "title", "object", "applet", "iframe",
+                     "frameset", "svg", "math", "button", "select", "textarea"}
 
 ALLOWED_ATTRS = {
     "*": {"align", "valign", "dir", "lang", "title", "class"},
@@ -132,6 +141,12 @@ class _Sanitizer(HTMLParser):
     # -- HTMLParser hooks ------------------------------------------------
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
+        if tag == "body":
+            # Reaching <body> means anything still suppressed was never closed
+            # -- a stray <title> or <style> in a broken header. Recover rather
+            # than discarding the message.
+            self.suppress_depth = 0
+            return
         if tag in DROP_CONTENT_TAGS:
             self.suppress_depth += 1
             return
@@ -180,6 +195,26 @@ class _Sanitizer(HTMLParser):
         return "".join(self.out) + tail
 
 
+_RE_ANY_TAG = re.compile(r"<[^>]*>")
+_RE_SCRIPTISH = re.compile(r"(?is)<(script|style)\b.*?</\1\s*>")
+
+
+def _crude_text(html: str) -> str:
+    """Tag-strip by regex, ignoring every parsing subtlety.
+
+    Only used to judge how much text a body *should* have contained, and as the
+    last-ditch rendering when the parser lost it.
+    """
+    text = _RE_SCRIPTISH.sub(" ", html or "")
+    text = _RE_ANY_TAG.sub(" ", text)
+    text = unescape(text)
+    return re.sub(r"[ \t\r\f\v]+", " ", text).strip()
+
+
+def _visible_len(html: str) -> int:
+    return len(_RE_ANY_TAG.sub(" ", html or "").strip())
+
+
 def sanitize_html(html: str, block_remote: bool = True) -> tuple[str, int]:
     """Return (safe_html, remote_resources_blocked)."""
     parser = _Sanitizer(block_remote=block_remote)
@@ -189,7 +224,24 @@ def sanitize_html(html: str, block_remote: bool = True) -> tuple[str, int]:
     except Exception:
         # A malformed body should degrade to text, never break the build.
         return escape(strip_tags(html or ""), quote=False), 0
-    return parser.result(), parser.blocked_remote
+
+    result = parser.result()
+
+    # Backstop. HTMLParser treats <title> and <textarea> as RCDATA, so an
+    # unclosed one consumes the rest of the document and we would publish an
+    # empty message without noticing. Whenever the sanitised output has lost
+    # nearly all of the text the source obviously contained, fall back to a
+    # plain-text rendering. Losing the markup beats losing the message.
+    crude = _crude_text(html)
+    if len(crude) >= 40 and _visible_len(result) < len(crude) // 5:
+        log.warning("sanitiser recovered %d chars as plain text (markup was unparseable)",
+                    len(crude))
+        return "\n".join(
+            f'<div class="ps-line">{escape(line, quote=False) or "&nbsp;"}</div>'
+            for line in crude.splitlines()
+        ), 0
+
+    return result, parser.blocked_remote
 
 
 class _Stripper(HTMLParser):
@@ -200,7 +252,9 @@ class _Stripper(HTMLParser):
 
     def handle_starttag(self, tag, attrs):
         tag = tag.lower()
-        if tag in DROP_CONTENT_TAGS:
+        if tag == "body":
+            self.suppress = 0          # same recovery as the sanitiser
+        elif tag in DROP_CONTENT_TAGS:
             self.suppress += 1
         elif tag in ("br", "p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6"):
             self.parts.append("\n")
