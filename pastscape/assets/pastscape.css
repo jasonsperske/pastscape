@@ -347,7 +347,6 @@ html, body {
   font: 9px var(--mono-font);
 }
 .ps-tree-row .twisty.has-kids {
-  border: 1px solid var(--shadow);
   background: var(--window);
   line-height: 9px;
   cursor: pointer;
