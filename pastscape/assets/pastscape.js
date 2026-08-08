@@ -911,6 +911,10 @@
     $$(".ps-menu-item[data-action]").forEach(function (item) {
       item.addEventListener("click", function () {
         menus.forEach(function (o) { o.classList.remove("open"); });
+        // A greyed item closes the menu and does nothing else. Without this it
+        // still ran its action, which only went unnoticed because every
+        // disabled item happened to be wired to "noop".
+        if (item.classList.contains("disabled")) return;
         doAction(item.dataset.action, item);
       });
     });
@@ -956,9 +960,6 @@
       case "sortdate": app.sortCol = "date"; applyView(); break;
       case "sortsubject": app.sortCol = "subject"; applyView(); break;
       case "sortsender": app.sortCol = "sender"; applyView(); break;
-      case "getmsg":
-        status("This is an archive — there is no server to check. Rebuild with `pastscape build` to add messages.");
-        break;
       case "file":
       case "delete":
         status("The archive is read-only.");

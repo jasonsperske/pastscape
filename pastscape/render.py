@@ -165,7 +165,7 @@ MESSENGER_MENUS = [
         ("Mark Folder Read", "", "markread", ""),
         ("Clear All Read Marks", "", "markunread", ""),
         None,
-        ("Delete Message", "Del", "delete", ""),
+        ("Delete Message", "Del", "delete", "disabled"),
     ]),
     ("Communicator", 0, [
         ("Messenger Mailbox", "Ctrl+2", "noop", "disabled"),
@@ -176,8 +176,11 @@ MESSENGER_MENUS = [
     ]),
 ]
 
+# (id, icon, label, action, disabled). No Get Msg: there is no server to poll,
+# and Delete is greyed out for the same reason New Msg and Stop are -- an
+# archive is read-only, and a button that only ever says so is worse than one
+# that visibly cannot be pressed.
 MESSENGER_TOOLBAR = [
-    ("btn-getmsg", "ic-getmsg", "Get Msg", "getmsg", False),
     ("btn-newmsg", "ic-newmsg", "New Msg", "noop", True),
     ("btn-reply", "ic-reply", "Reply", "reply", False),
     ("btn-replyall", "ic-replyall", "Reply All", "replyall", False),
@@ -186,7 +189,7 @@ MESSENGER_TOOLBAR = [
     ("btn-next", "ic-next", "Next", "nextunread", False),
     ("btn-print", "ic-print", "Print", "print", False),
     ("btn-search", "ic-search", "Search", "search", False),
-    ("btn-delete", "ic-delete", "Delete", "delete", False),
+    ("btn-delete", "ic-delete", "Delete", "delete", True),
     ("btn-stop", "ic-stop", "Stop", "noop", True),
 ]
 

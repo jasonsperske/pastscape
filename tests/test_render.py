@@ -2,7 +2,13 @@ from datetime import datetime, timezone
 from urllib.parse import parse_qs, unquote, urlparse
 
 from pastscape.model import Address, Message
-from pastscape.render import _reply_mailto, slugify
+from pastscape.render import (
+    MESSENGER_TOOLBAR,
+    _reply_mailto,
+    build_index_page,
+    read_asset,
+    slugify,
+)
 
 
 def sample() -> Message:
@@ -86,3 +92,45 @@ def test_slugify_is_url_safe_and_stable():
     assert slugify("Café & Co.") == "cafe-co"
     assert slugify("") == "folder"
     assert slugify("!!!") == "folder"
+
+
+# ------------------------------------------------------------------- toolbar
+
+def toolbar_ids():
+    return [btn[0] for btn in MESSENGER_TOOLBAR]
+
+
+def test_get_msg_is_not_in_the_toolbar():
+    # There is no server to poll; the button would be a lie.
+    assert "btn-getmsg" not in toolbar_ids()
+    assert not any(b[2] == "Get Msg" for b in MESSENGER_TOOLBAR)
+
+    page = build_index_page("Local Mail", read_asset("icons.svg"))
+    assert 'id="btn-getmsg"' not in page
+    assert ">Get Msg<" not in page
+
+
+def test_read_only_buttons_are_disabled():
+    disabled = {b[0] for b in MESSENGER_TOOLBAR if b[4]}
+    assert {"btn-delete", "btn-newmsg", "btn-stop"} <= disabled
+
+    page = build_index_page("Local Mail", read_asset("icons.svg"))
+    delete_btn = page.split('id="btn-delete"')[1].split(">")[0]
+    assert "disabled" in delete_btn
+
+
+def test_actionable_buttons_are_not_disabled():
+    enabled = {b[0] for b in MESSENGER_TOOLBAR if not b[4]}
+    assert {"btn-reply", "btn-replyall", "btn-forward", "btn-search"} <= enabled
+
+
+def test_delete_menu_item_is_greyed_out_too():
+    page = build_index_page("Local Mail", read_asset("icons.svg"))
+    item = page.split("Delete Message")[0].split('<div class="ps-menu-item')[-1]
+    assert "disabled" in item
+
+
+def test_every_toolbar_icon_exists_in_the_sprite():
+    sprite = read_asset("icons.svg")
+    for _, icon_id, label, _, _ in MESSENGER_TOOLBAR:
+        assert f'id="{icon_id}"' in sprite, f"{label} references missing {icon_id}"
