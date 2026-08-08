@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pastscape"
+version = "1.0.0"
+description = "Build a static, Netscape Communicator-styled archive from PST files or EML folders."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Jason Sperske" }]
+dependencies = []
+
+[project.optional-dependencies]
+# PST reading. libpff-python provides the `pypff` module.
+pst = ["libpff-python>=20231205"]
+
+[project.scripts]
+pastscape = "pastscape.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pastscape*"]
+
+[tool.setuptools.package-data]
+pastscape = ["assets/*", "assets/**/*"]

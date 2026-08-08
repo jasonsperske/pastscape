@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Build output and local corpora. `archive/` is real mail, not fixtures.
+site/
+sample-mail/
+archive/
+*.eml
+*.pst
+*.ost
+*.mbox
