@@ -1,4 +1,8 @@
-"""Year-grouped folder tree."""
+"""Year-grouped folder tree.
+
+These build with account_folders=False so the year layout is tested on its
+own; the interaction between mailbox roots and years lives in test_accounts.
+"""
 
 import json
 from datetime import datetime, timezone
@@ -112,7 +116,7 @@ def folders_of(site: Path):
 
 def test_tree_is_grouped_by_year(tmp_path, multi_year):
     out = tmp_path / "site"
-    build_site([multi_year], out, title="Local Mail")
+    build_site([multi_year], out, title="Local Mail", account_folders=False)
     meta, paths = folders_of(out)
 
     assert paths[0] == "2011"
@@ -126,7 +130,7 @@ def test_tree_is_grouped_by_year(tmp_path, multi_year):
 
 def test_year_folders_hold_no_messages_of_their_own(tmp_path, multi_year):
     out = tmp_path / "site"
-    build_site([multi_year], out, title="Local Mail")
+    build_site([multi_year], out, title="Local Mail", account_folders=False)
     meta, _ = folders_of(out)
     by_path = {f["path"]: f for f in meta}
 
@@ -140,7 +144,8 @@ def test_year_folders_hold_no_messages_of_their_own(tmp_path, multi_year):
 
 def test_no_year_folders_keeps_the_old_shape(tmp_path, multi_year):
     out = tmp_path / "site"
-    build_site([multi_year], out, title="Local Mail", year_folders=False)
+    build_site([multi_year], out, title="Local Mail", year_folders=False,
+               account_folders=False)
     _, paths = folders_of(out)
     assert paths[0] == "Inbox"
     assert not any(p[:4].isdigit() for p in paths)
@@ -150,7 +155,7 @@ def test_messages_land_in_the_year_of_their_date(tmp_path, multi_year):
     from pastscape.state import Manifest
 
     out = tmp_path / "site"
-    build_site([multi_year], out, title="Local Mail")
+    build_site([multi_year], out, title="Local Mail", account_folders=False)
     by_subject = {r.subject: r.folder for r in Manifest.load(out).messages.values()}
     assert by_subject["Inbox 2004"] == "2004/Inbox"
     assert by_subject["Sent 2011"] == "2011/Sent"
@@ -166,7 +171,7 @@ def test_twenty_year_archive(tmp_path):
         write_eml(root, "Sent", f"Sent {year}", datetime(year, 9, 1, 9, tzinfo=timezone.utc))
 
     out = tmp_path / "site"
-    stats = build_site([root], out, title="Long Archive")
+    stats = build_site([root], out, title="Long Archive", account_folders=False)
     assert stats.total == len(years) * 2
 
     meta, paths = folders_of(out)
@@ -185,7 +190,7 @@ def test_a_gap_year_gets_no_folder(tmp_path):
     write_eml(root, "Inbox", "Old", datetime(2004, 1, 1, tzinfo=timezone.utc))
     write_eml(root, "Inbox", "New", datetime(2008, 1, 1, tzinfo=timezone.utc))
     out = tmp_path / "site"
-    build_site([root], out, title="Gappy")
+    build_site([root], out, title="Gappy", account_folders=False)
     _, paths = folders_of(out)
     tops = [p for p in paths if "/" not in p]
     assert tops == ["2008", "2004"], "years with no mail should not appear"
@@ -193,11 +198,11 @@ def test_a_gap_year_gets_no_folder(tmp_path):
 
 def test_new_year_of_mail_only_adds_that_year(tmp_path, multi_year):
     out = tmp_path / "site"
-    build_site([multi_year], out, title="Local Mail")
+    build_site([multi_year], out, title="Local Mail", account_folders=False)
 
     write_eml(multi_year, "Inbox", "Arrived later",
               datetime(2026, 2, 2, 12, tzinfo=timezone.utc))
-    stats = build_site([multi_year], out, title="Local Mail")
+    stats = build_site([multi_year], out, title="Local Mail", account_folders=False)
 
     assert stats.added == 1
     _, paths = folders_of(out)

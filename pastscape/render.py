@@ -797,13 +797,16 @@ class SiteBuilder:
         self._ordered_messages = ordered_messages
         return folder_meta, doc_locations
 
-    def write_folders_json(self, folder_meta: list[dict], total: int, built: str) -> None:
+    def write_folders_json(self, folder_meta: list[dict], total: int, built: str,
+                           accounts: list[str] | None = None) -> None:
         payload = {
             "title": self.title,
             "generator": f"pastscape {__version__}",
             "built": built,
             "totalMessages": total,
             "newsHost": self.news_host,
+            # Folder paths the tree should draw as mailbox roots.
+            "accounts": accounts or [],
             "folders": folder_meta,
         }
         (self.site / "data").mkdir(parents=True, exist_ok=True)

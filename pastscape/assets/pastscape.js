@@ -24,6 +24,7 @@
   var app = {
     cfg: null,
     folders: [],
+    accounts: [],        // folder paths drawn as mailbox roots
     byslug: {},
     folder: null,
     rows: [],            // rows of the current folder, after sort/thread
@@ -160,8 +161,16 @@
   /* Matched by name at any depth: once the tree is grouped by year the real
      Inbox lives at "2011/Inbox", and it should still look like an inbox. */
   function folderIcon(f) {
+    if (isAccount(f.path)) return "ic-localmail";
     if (RE_YEAR.test(f.name)) return "ic-archive";
     return FOLDER_ICONS[f.name.toLowerCase()] || "ic-folder";
+  }
+
+  /* Mail from several addresses gets a root per mailbox, drawn the way
+     Communicator drew "Local Mail" and "news.server.com" -- separate trees
+     rather than folders inside one. */
+  function isAccount(path) {
+    return app.accounts.indexOf(path) >= 0;
   }
 
   /* An archive spanning twenty years has twenty top-level folders, each with
@@ -198,10 +207,16 @@
   }
 
   function initTreeCollapse() {
-    // Open the first top-level folder -- the most recent year -- and close the
-    // rest, so the tree starts at a readable size whatever the archive spans.
-    var tops = app.folders.filter(function (f) { return f.depth === 0 && hasChildren(f.path); });
-    tops.slice(1).forEach(function (f) { app.treeCollapsed[f.path] = true; });
+    // Close every year but the most recent one in each mailbox, so the tree
+    // starts small whatever the archive spans. Mailbox roots stay open --
+    // hiding a whole account behind a "+" would bury half the archive.
+    var newestSeen = {};
+    app.folders.forEach(function (f) {
+      if (!RE_YEAR.test(f.name) || !hasChildren(f.path)) return;
+      var parent = f.parent || "";
+      if (newestSeen[parent]) app.treeCollapsed[f.path] = true;
+      else newestSeen[parent] = true;
+    });
   }
 
   function toggleFolder(path) {
@@ -214,17 +229,22 @@
     var host = $("#ps-tree");
     host.textContent = "";
 
-    var head = el("div", "ps-tree-row ps-tree-group");
-    head.appendChild(el("span", "twisty", "−"));
-    head.appendChild(icon("ic-localmail", "ficon"));
-    head.appendChild(el("span", "fname", app.cfg.title || "Local Mail"));
-    host.appendChild(head);
+    // With mailbox roots the addresses are the top of the tree; without them
+    // the archive title stands in, as Communicator's "Local Mail" did.
+    if (!app.accounts.length) {
+      var head = el("div", "ps-tree-row ps-tree-group");
+      head.appendChild(el("span", "twisty", "−"));
+      head.appendChild(icon("ic-localmail", "ficon"));
+      head.appendChild(el("span", "fname", app.cfg.title || "Local Mail"));
+      host.appendChild(head);
+    }
 
     app.folders.forEach(function (f) {
       if (isHidden(f)) return;
 
-      var row = el("div", "ps-tree-row");
-      row.style.paddingLeft = (10 + f.depth * 14) + "px";
+      var account = isAccount(f.path);
+      var row = el("div", "ps-tree-row" + (account ? " ps-tree-group" : ""));
+      row.style.paddingLeft = (account ? 0 : 10) + (f.depth * 14) + "px";
       row.dataset.slug = f.slug;
       if (app.folder && app.folder.slug === f.slug) row.classList.add("selected");
 
@@ -239,7 +259,10 @@
       }
       row.appendChild(tw);
       row.appendChild(icon(folderIcon(f), "ficon"));
-      row.appendChild(el("span", "fname", f.name));
+      var label = el("span", "fname", f.name);
+      // Mailbox addresses are wider than the pane; let hover show the rest.
+      label.title = f.path + (f.count ? " — " + f.count + " messages" : "");
+      row.appendChild(label);
 
       var badge = collapsed ? unreadUnder(f) : f.unread;
       if (badge > 0) {
@@ -1134,6 +1157,7 @@
     getJSON("data/folders.json").then(function (cfg) {
       app.cfg = cfg;
       app.folders = cfg.folders || [];
+      app.accounts = cfg.accounts || [];
       app.folders.forEach(function (f) {
         f.unreadOriginal = f.unread;
         // Reflect locally-stored read marks in the initial counts.

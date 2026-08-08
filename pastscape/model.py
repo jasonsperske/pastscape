@@ -175,6 +175,69 @@ def normalize_folder(name: str) -> str:
 UNDATED_FOLDER = "Undated"
 _RE_YEAR = re.compile(r"(?:19|20)\d\d")
 
+# Folders whose messages you sent, where the account is the *sender*.
+SENT_LIKE_FOLDERS = ("Sent", "Drafts", "Unsent Messages", "Templates")
+
+# Headers written by the delivering server, which name the mailbox the message
+# was actually delivered to. Far more trustworthy than To: -- a list message is
+# addressed to the list, and a bcc'd one may not mention you at all.
+DELIVERY_HEADERS = ("Delivered-To", "X-Original-To", "Envelope-To",
+                    "X-Envelope-To", "X-Apparently-To", "X-RcptTo")
+
+OTHER_ACCOUNT = "Other Recipients"
+UNKNOWN_ACCOUNT = "Unknown Recipient"
+
+_RE_ADDR = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+
+
+def first_address(text: str) -> str:
+    match = _RE_ADDR.search(text or "")
+    return match.group(0).lower() if match else ""
+
+
+def header_value(msg: "Message", name: str) -> str:
+    lname = name.lower()
+    for key, value in msg.headers:
+        if key.lower() == lname:
+            return value
+    return ""
+
+
+def account_candidate(msg: "Message") -> str:
+    """Which mailbox this message was filed in, best effort.
+
+    Delivery headers first, then the sender for anything in a Sent-like
+    folder, and only then To:. Old mail often carries no delivery header at
+    all, so To: has to stay in the chain even though it is the weakest signal.
+    """
+    top = (msg.folder or "").split("/")[0]
+    if top in SENT_LIKE_FOLDERS and msg.sender.addr:
+        return msg.sender.addr.lower()
+    for name in DELIVERY_HEADERS:
+        addr = first_address(header_value(msg, name))
+        if addr:
+            return addr
+    for recipient in msg.to:
+        if recipient.addr:
+            return recipient.addr.lower()
+    if msg.sender.addr:
+        return msg.sender.addr.lower()
+    return ""
+
+
+def account_addresses(msg: "Message") -> set[str]:
+    """Every address that could tie this message to one of your mailboxes."""
+    found = {a.addr.lower() for a in (msg.to + msg.cc) if a.addr}
+    if msg.sender.addr:
+        found.add(msg.sender.addr.lower())
+    if msg.reply_to and msg.reply_to.addr:
+        found.add(msg.reply_to.addr.lower())
+    for name in DELIVERY_HEADERS:
+        addr = first_address(header_value(msg, name))
+        if addr:
+            found.add(addr)
+    return found
+
 
 def year_folder(msg: "Message") -> str:
     """Which year bucket a message belongs to."""

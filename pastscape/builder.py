@@ -4,12 +4,22 @@ from __future__ import annotations
 
 import logging
 import shutil
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .model import Message, compute_uid, ensure_tz, normalize_folder, year_folder
+from .model import (
+    OTHER_ACCOUNT,
+    UNKNOWN_ACCOUNT,
+    Message,
+    account_addresses,
+    account_candidate,
+    compute_uid,
+    ensure_tz,
+    normalize_folder,
+    year_folder,
+)
 from .render import SiteBuilder
 from .search import build_index
 from .sources import read_source, source_fingerprint
@@ -44,25 +54,76 @@ class BuildStats:
         return ", ".join(bits)
 
 
-def place(msg: Message, folder_prefix: str = "", year_folders: bool = True) -> str:
-    """Work out a message's folder path.
+def place(msg: Message, account: str = "", folder_prefix: str = "",
+          year_folders: bool = True) -> str:
+    """Assemble a message's folder path: prefix / account / year / folder.
 
-    Normalisation has to happen before the year is prepended: it only maps the
+    Normalisation has to happen before anything is prepended: it only maps the
     leading segment, so "Deleted Items" becomes "Trash" while "2008/Deleted
     Items" would not.
     """
-    folder = normalize_folder(msg.folder)
-    if year_folders:
-        folder = f"{year_folder(msg)}/{folder}"
+    parts: list[str] = []
     if folder_prefix:
-        folder = f"{folder_prefix.strip('/')}/{folder}"
-    return folder
+        parts.append(folder_prefix.strip("/"))
+    if account:
+        parts.append(account.replace("/", "_"))
+    if year_folders:
+        parts.append(year_folder(msg))
+    parts.append(normalize_folder(msg.folder))
+    return "/".join(parts)
+
+
+def assign_accounts(messages: list[Message], explicit: list[str] | None = None,
+                    enabled: bool = True) -> dict[str, str]:
+    """Map each message uid to the mailbox it belongs to.
+
+    With --account the answer is exact: a message belongs to a named mailbox if
+    any of its addresses matches. Otherwise the accounts are inferred, and the
+    inference is deliberately conservative -- a mailing list you were on for a
+    decade can easily out-number a mailbox, so a candidate has to clear a share
+    of the archive before it earns a root of its own, and stragglers are
+    gathered under one heading rather than scattering the tree.
+    """
+    if not enabled or not messages:
+        return {}
+
+    if explicit:
+        wanted = {addr.lower().strip(): addr.strip() for addr in explicit if addr.strip()}
+        assigned = {}
+        for msg in messages:
+            match = next((wanted[a] for a in account_addresses(msg) if a in wanted), None)
+            assigned[msg.uid] = match or OTHER_ACCOUNT
+        return assigned
+
+    candidates = {msg.uid: account_candidate(msg) for msg in messages}
+    counts = Counter(addr for addr in candidates.values() if addr)
+    if not counts:
+        return {msg.uid: UNKNOWN_ACCOUNT for msg in messages}
+
+    floor = max(3, len(messages) // 50)  # 2% of the archive
+    major = {addr for addr, n in counts.items() if n >= floor}
+
+    if len(major) <= 1:
+        # One mailbox (or one that dominates): everything belongs to it, and
+        # splitting off a handful of oddities would only add noise.
+        only = next(iter(major), counts.most_common(1)[0][0])
+        return {msg.uid: only for msg in messages}
+
+    log.info("detected %d mailboxes: %s", len(major), ", ".join(sorted(major)))
+    return {
+        uid: (addr if addr in major else OTHER_ACCOUNT)
+        for uid, addr in candidates.items()
+    }
 
 
 def collect(sources: list[Path], kinds: dict[Path, str] | None = None,
-            limit: int = 0, folder_prefix: str = "",
-            year_folders: bool = True) -> tuple[list[Message], BuildStats]:
-    """Read every source, assign uids, drop cross-source duplicates."""
+            limit: int = 0) -> tuple[list[Message], BuildStats]:
+    """Read every source, assign uids, drop cross-source duplicates.
+
+    Folders are only normalised here. Final placement happens once everything
+    has been read, because which mailboxes exist is a property of the whole
+    archive rather than of any one message.
+    """
     stats = BuildStats()
     seen: dict[str, Message] = {}
     kinds = kinds or {}
@@ -73,7 +134,7 @@ def collect(sources: list[Path], kinds: dict[Path, str] | None = None,
         try:
             for msg in read_source(src, kinds.get(src)):
                 msg.date = ensure_tz(msg.date)
-                msg.folder = place(msg, folder_prefix, year_folders)
+                msg.folder = normalize_folder(msg.folder)
                 msg.uid = compute_uid(msg)
                 if msg.uid in seen:
                     stats.duplicates += 1
@@ -104,15 +165,16 @@ def build_site(sources: list[Path], site_dir: Path, *, title: str = "Local Mail"
                kinds: dict[Path, str] | None = None, limit: int = 0,
                folder_prefix: str = "", block_remote: bool = True,
                news_host: str = "", prune: bool = False,
-               force: bool = False, year_folders: bool = True) -> BuildStats:
+               force: bool = False, year_folders: bool = True,
+               accounts: list[str] | None = None,
+               account_folders: bool = True) -> BuildStats:
     site_dir.mkdir(parents=True, exist_ok=True)
     # --force rewrites every page but still reads the manifest: first_seen is
     # history we should not throw away just because the renderer changed.
     manifest = Manifest.load(site_dir)
     known = manifest.messages
 
-    messages, stats = collect(sources, kinds=kinds, limit=limit,
-                              folder_prefix=folder_prefix, year_folders=year_folders)
+    messages, stats = collect(sources, kinds=kinds, limit=limit)
 
     if not messages:
         if known and not prune:
@@ -127,6 +189,16 @@ def build_site(sources: list[Path], site_dir: Path, *, title: str = "Local Mail"
                 "Pass --prune to empty the archive on purpose."
             )
         log.warning("no messages found in %s", ", ".join(str(s) for s in sources))
+
+    assigned = assign_accounts(messages, explicit=accounts, enabled=account_folders)
+    for msg in messages:
+        msg.folder = place(msg, assigned.get(msg.uid, ""), folder_prefix, year_folders)
+
+    # The tree draws these as mailbox roots rather than as ordinary folders.
+    account_roots = sorted({
+        f"{folder_prefix.strip('/')}/{a}" if folder_prefix else a
+        for a in (v.replace("/", "_") for v in assigned.values())
+    })
 
     builder = SiteBuilder(site_dir, title=title, block_remote=block_remote, news_host=news_host)
     builder.write_assets()
@@ -217,7 +289,8 @@ def build_site(sources: list[Path], site_dir: Path, *, title: str = "Local Mail"
                 new_records[uid] = known[uid]
 
     built = now
-    builder.write_folders_json(folder_meta, total=len(ordered), built=built)
+    builder.write_folders_json(folder_meta, total=len(ordered), built=built,
+                               accounts=account_roots)
     builder.write_index()
     build_index(ordered, site_dir / "data" / "search", doc_locations)
 

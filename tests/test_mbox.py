@@ -215,11 +215,14 @@ def test_takeout_builds_a_site_with_a_folder_tree(tmp_path):
     import json
     cfg = json.loads((out / "data" / "folders.json").read_text("utf-8"))
     paths = [f["path"] for f in cfg["folders"]]
-    # Grouped by year, then Communicator's own folders, then the Gmail labels.
-    assert paths[:6] == ["2008", "2008/Inbox", "2008/Drafts", "2008/Sent",
-                         "2008/Trash", "2008/Junk"]
-    assert "2008/Receipts" in paths
-    assert "2008/Projects/Pastscape" in paths
+    # Mailbox, then year, then Communicator's folders, then the Gmail labels.
+    box = "you@example.com"
+    assert cfg["accounts"] == [box]
+    assert paths[:7] == [box, box + "/2008", box + "/2008/Inbox",
+                         box + "/2008/Drafts", box + "/2008/Sent",
+                         box + "/2008/Trash", box + "/2008/Junk"]
+    assert box + "/2008/Receipts" in paths
+    assert box + "/2008/Projects/Pastscape" in paths
 
 
 def test_takeout_rebuild_is_incremental(tmp_path):
@@ -255,16 +258,17 @@ def test_intermediate_label_folders_are_created(tmp_path):
     cfg = json.loads((out / "data" / "folders.json").read_text("utf-8"))
     by_path = {f["path"]: f for f in cfg["folders"]}
 
-    assert "2008/Projects" in by_path, "parent folder missing from the tree"
-    assert by_path["2008/Projects"]["count"] == 0
-    assert by_path["2008/Projects"]["depth"] == 1
-    assert by_path["2008/Projects"]["parent"] == "2008"
+    box = "you@example.com/2008"
+    assert box + "/Projects" in by_path, "parent folder missing from the tree"
+    assert by_path[box + "/Projects"]["count"] == 0
+    assert by_path[box + "/Projects"]["depth"] == 2
+    assert by_path[box + "/Projects"]["parent"] == box
 
-    child = by_path["2008/Projects/Pastscape"]
-    assert child["depth"] == 2
-    assert child["parent"] == "2008/Projects"
+    child = by_path[box + "/Projects/Pastscape"]
+    assert child["depth"] == 3
+    assert child["parent"] == box + "/Projects"
     assert child["count"] == 1
 
     # Placeholder folders still get a listing file, so clicking one works.
-    assert (out / by_path["2008/Projects"]["file"]).is_file()
-    assert json.loads((out / by_path["2008/Projects"]["file"]).read_text())["rows"] == []
+    assert (out / by_path[box + "/Projects"]["file"]).is_file()
+    assert json.loads((out / by_path[box + "/Projects"]["file"]).read_text())["rows"] == []

@@ -80,6 +80,8 @@ pastscape build SOURCE [SOURCE ...] -o site [options]
       --type KIND           force a reader instead of sniffing
       --folder-prefix PATH  nest everything under e.g. "Archive 2004"
       --no-year-folders     put Inbox/Sent at the root instead of grouping by year
+      --account ADDRESS     give this address a mailbox tree of its own (repeatable)
+      --no-account-folders  do not split the tree by recipient address
       --news-host HOST      decorative news server in the tree, like the original
       --prune               delete pages for messages no longer in the sources
       --force               rewrite every page (keeps first-seen dates)
@@ -94,27 +96,54 @@ pastscape serve site        preview an already-built archive
 
 ### The folder tree
 
-The root of the tree is one folder per year, newest first, going back to the
-oldest message in the archive. Each year holds that year's own folders:
+Each mailbox gets a root tree of its own, the way Communicator showed
+"Local Mail" and "news.server.com" side by side. Inside a mailbox the tree is
+one folder per year, newest first, back to the oldest message:
 
 ```
-Local Mail
-  2026          Inbox  Sent  Trash
-  2025          Inbox  Sent  Trash
-  2024          Inbox  Sent  Trash  Inbox/Projects
+jason@example.com          ← one root per recipient address
+  2026        Inbox  Sent  Trash
+  2025        Inbox  Sent  Trash
   …
-  2003          Inbox  Sent
+  2006        Inbox  Sent
+dineane@example.com
+  2011        Inbox
 ```
+
+**Which mailbox a message belongs to** is worked out from, in order: the
+delivery headers a server writes (`Delivered-To`, `X-Original-To`,
+`Envelope-To`), the sender for anything in Sent or Drafts, and only then `To:`.
+`To:` is the weakest signal — list mail is addressed to the list, and bcc'd
+mail may not mention you at all — but old mail often carries nothing better.
+
+Inference is deliberately conservative. An address has to account for at least
+2% of the archive (minimum 3 messages) before it earns a root, so a list you
+were on for a decade does not sprout one; anything below that is gathered under
+`Other Recipients`. When a single address dominates, everything goes under it
+rather than splitting off a handful of oddities.
+
+Name your addresses explicitly with `--account` when the guess is wrong — a
+message then belongs to a mailbox if *any* of its addresses (To, Cc, From,
+Reply-To or a delivery header) matches:
+
+```bash
+pastscape build old.pst work.pst -o site \
+    --account jason@example.com --account jason@work.example.com
+```
+
+`--no-account-folders` puts the years back at the root.
 
 A message's year comes from its `Date:` header; anything undated lands in an
 `Undated` folder that sorts after every year. Years with no mail at all get no
 folder — the range is bounded by the oldest and newest message, not filled in.
 
-The year folders hold no messages themselves, so clicking one opens the branch
-rather than dead-ending on an empty list. Only the most recent year starts
-expanded: a twenty-year archive is around 80 folders, and rendering them all
-at once is unreadable. Everything that navigates — selecting a folder, opening
-a deep link, jumping to a search hit — expands whatever branch it lands in.
+Mailbox and year folders hold no messages themselves, so clicking one opens the
+branch rather than dead-ending on an empty list. Only the most recent year in
+each mailbox starts expanded: a twenty-year archive runs to 80-odd folders, and
+rendering them all at once is unreadable. Mailbox roots always stay open, and
+everything that navigates — selecting a folder, opening a deep link, jumping to
+a search hit — expands whatever branch it lands in. A collapsed branch shows the
+unread count of everything beneath it.
 
 Pass `--no-year-folders` for the flat shape, with Inbox and Sent at the root.
 

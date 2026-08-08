@@ -60,6 +60,8 @@ def cmd_build(args: argparse.Namespace) -> int:
         prune=args.prune,
         force=args.force,
         year_folders=args.year_folders,
+        accounts=args.account,
+        account_folders=args.account_folders,
     )
 
     print(f"\nPastscape: {stats.summary()}")
@@ -170,6 +172,11 @@ def build_parser() -> argparse.ArgumentParser:
                    help="nest every folder under this path, e.g. 'Archive 2004'")
     b.add_argument("--no-year-folders", dest="year_folders", action="store_false",
                    help="do not group the tree by year; put Inbox, Sent etc. at the root")
+    b.add_argument("--account", action="append", metavar="ADDRESS", default=[],
+                   help="your address, giving it a mailbox tree of its own. Repeatable; "
+                        "when omitted the mailboxes are inferred from the mail")
+    b.add_argument("--no-account-folders", dest="account_folders", action="store_false",
+                   help="do not split the tree by recipient address")
     b.add_argument("--news-host", default="",
                    help="decorative news server entry in the folder tree, e.g. news.server.com")
     b.add_argument("--limit", type=int, default=0, help="stop after N messages (for testing)")
