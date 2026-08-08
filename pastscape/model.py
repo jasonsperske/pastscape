@@ -11,6 +11,10 @@ from typing import Iterable
 
 # Folders Netscape Communicator always showed, in its order. Any folder we do
 # not recognise is appended after these.
+#
+# Junk is the one addition. Communicator 4 predates junk filtering, but we do
+# map Gmail's Spam and Outlook's Junk onto it, and a system folder reads badly
+# sorted alphabetically in among someone's own labels.
 CANONICAL_FOLDER_ORDER = [
     "Inbox",
     "Unsent Messages",
@@ -18,6 +22,7 @@ CANONICAL_FOLDER_ORDER = [
     "Templates",
     "Sent",
     "Trash",
+    "Junk",
     "Samples",
 ]
 

@@ -157,11 +157,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("build", parents=[common], help="build or update an archive site")
     b.add_argument("source", nargs="+",
-                   help="PST/OST file, mbox file, or directory of .eml files (repeatable)")
+                   help="PST/OST file, mbox (plain, .gz/.bz2/.xz, or a Google "
+                        "Takeout .zip/.tgz), or directory of .eml files (repeatable)")
     b.add_argument("-o", "--output", default="site", help="output directory (default: site)")
     b.add_argument("-t", "--title", default="Local Mail",
                    help="archive title, shown in the title bar and folder tree")
-    b.add_argument("--type", choices=["pst", "eml", "mbox", "maildir", "eml-file"],
+    b.add_argument("--type", choices=["pst", "eml", "mbox", "mbox-compressed",
+                                      "mbox-archive", "maildir", "eml-file"],
                    help="force the source reader instead of sniffing")
     b.add_argument("--folder-prefix", default="",
                    help="nest every folder under this path, e.g. 'Archive 2004'")

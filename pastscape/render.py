@@ -733,9 +733,19 @@ class SiteBuilder:
         doc_locations: list[list] = []
         ordered_messages: list[Message] = []
 
+        # A nested label like "Projects/Pastscape" may have no message filed
+        # directly under "Projects". Without a row for the parent, the child
+        # renders at depth 1 with nothing above it and appears to belong to
+        # whichever folder happens to precede it.
+        all_paths = set(folders)
+        for path in list(all_paths):
+            parts = path.split("/")
+            for depth in range(1, len(parts)):
+                all_paths.add("/".join(parts[:depth]))
+
         used_slugs: set[str] = set()
-        for path in sorted(folders.keys(), key=folder_sort_key):
-            msgs = sorted(folders[path], key=lambda m: m.sort_key(), reverse=True)
+        for path in sorted(all_paths, key=folder_sort_key):
+            msgs = sorted(folders.get(path, []), key=lambda m: m.sort_key(), reverse=True)
             slug = slugify(path)
             base = slug
             n = 1

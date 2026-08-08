@@ -10,14 +10,18 @@ from ..model import Message
 
 
 def detect_source(path: Path) -> str:
-    """Guess which reader handles ``path``."""
+    """Guess which reader handles ``path``.
+
+    Content beats extension: a Takeout download is a zip whatever it is
+    called, and a PST is a PST.
+    """
     if path.is_dir():
         return "maildir" if (path / "cur").is_dir() and (path / "new").is_dir() else "eml"
+
     suffix = path.suffix.lower()
-    if suffix == ".pst" or suffix == ".ost":
+    if suffix in (".pst", ".ost"):
         return "pst"
-    if suffix in (".mbox", ".mbx"):
-        return "mbox"
+
     # Sniff: PST files start with "!BDN".
     try:
         with path.open("rb") as fh:
@@ -26,6 +30,17 @@ def detect_source(path: Path) -> str:
             return "pst"
     except OSError:
         pass
+
+    from .mbox import is_container, sniff_compression
+
+    # zip/tar (Google Takeout) and gzip/bzip2/xz streams are all handled by the
+    # mbox reader, which unwraps them.
+    if is_container(path):
+        return "mbox-archive"
+    if sniff_compression(path) != "none":
+        return "mbox-compressed"
+    if suffix in (".mbox", ".mbx", ".mbs"):
+        return "mbox"
     if suffix == ".eml":
         return "eml-file"
     return "mbox"
@@ -47,7 +62,7 @@ def read_source(path: Path, kind: str | None = None) -> Iterator[Message]:
         msg = read_eml_file(path, folder="Inbox")
         if msg:
             yield msg
-    elif kind == "mbox":
+    elif kind in ("mbox", "mbox-compressed", "mbox-archive"):
         from .mbox import read_mbox
 
         yield from read_mbox(path)
