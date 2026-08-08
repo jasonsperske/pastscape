@@ -29,10 +29,34 @@ pastscape build archive.pst -o site --title "Local Mail" --serve
 
 ## Install
 
+Work inside a virtualenv. Once, to create it:
+
 ```bash
-pip install -e .            # the tool itself has no dependencies
-pip install -e '.[pst]'     # adds libpff-python, for reading PST files
+cd /home/jason/dev/email_archive
+python3 -m venv .venv
+.venv/bin/pip install -e '.[pst]'    # drop [pst] if you only have .eml/mbox
 ```
+
+Then, in each new shell, activate it — that puts the `pastscape` command on
+your `PATH`:
+
+```bash
+source .venv/bin/activate            # Windows: .venv\Scripts\activate
+pastscape --version
+pastscape build archive.pst -o site --serve
+deactivate                           # when you're done
+```
+
+Your prompt gains a `(.venv)` prefix while it is active. If you'd rather not
+activate anything, call the binary directly — it behaves identically:
+
+```bash
+.venv/bin/pastscape build archive.pst -o site --serve
+```
+
+Every command below assumes one of those two forms. `pip install -e` is an
+editable install, so edits to `pastscape/` take effect immediately with no
+reinstall.
 
 PST support needs one of two backends, tried in that order:
 
@@ -211,13 +235,15 @@ drag too.
 
 ## Development
 
+With the venv from [Install](#install) active:
+
 ```bash
-python -m venv .venv && .venv/bin/pip install -e '.[pst]' pytest
-.venv/bin/python -m pytest tests/ -q
+pip install pytest
+pytest tests/ -q
 
 # build the demo corpus and look at it
-.venv/bin/python tests/make_sample.py /tmp/mail
-.venv/bin/python -m pastscape build /tmp/mail -o /tmp/site --news-host news.server.com --serve
+python tests/make_sample.py /tmp/mail
+pastscape build /tmp/mail -o /tmp/site --news-host news.server.com --serve
 ```
 
 `tests/make_sample.py` writes a small 1997-flavoured corpus: a thread with
