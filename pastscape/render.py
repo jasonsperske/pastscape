@@ -534,7 +534,7 @@ def build_index_page(site_title: str, sprite: str) -> str:
 {_messenger_toolbar()}
 <div class="ps-body">
   <div class="ps-pane-tree" id="ps-pane-tree">
-    <div class="ps-colhead"><div class="col" style="flex:1 1 auto">Name</div></div>
+    <div class="ps-colhead"><div class="col" style="flex:1 1 auto"><span class="lbl">Name</span></div></div>
     <div class="ps-scroll"><div class="ps-tree" id="ps-tree"></div></div>
   </div>
   <div class="ps-splitter-v" id="ps-split-v"></div>
@@ -542,20 +542,20 @@ def build_index_page(site_title: str, sprite: str) -> str:
     <div class="ps-pane-list" id="ps-pane-list">
       <div class="ps-colhead" id="ps-list-head">
         <div class="col" data-col="subject" style="flex:0 0 300px">
-          <svg><use href="#ic-mail-read"></use></svg><span>Subject</span>
+          <svg><use href="#ic-mail-read"></use></svg><span class="lbl">Subject</span>
           <span class="sortmark"></span><span class="grip"></span>
         </div>
         <div class="col" data-col="flag" style="flex:0 0 20px">
           <svg><use href="#ic-flag"></use></svg>
         </div>
         <div class="col" data-col="sender" style="flex:0 0 170px">
-          <span>Sender</span><span class="sortmark"></span><span class="grip"></span>
+          <span class="lbl">Sender</span><span class="sortmark"></span><span class="grip"></span>
         </div>
         <div class="col" data-col="date" style="flex:0 0 120px">
-          <span>Date</span><span class="sortmark"></span><span class="grip"></span>
+          <span class="lbl">Date</span><span class="sortmark"></span><span class="grip"></span>
         </div>
         <div class="col" data-col="priority" style="flex:1 1 90px">
-          <span>Priority</span><span class="sortmark"></span>
+          <span class="lbl">Priority</span><span class="sortmark"></span>
         </div>
       </div>
       <div class="ps-scroll" id="ps-list-scroll"><div class="ps-list" id="ps-list"></div></div>

@@ -20,6 +20,9 @@
 
   var ROW_H = 16;
   var LS_KEY = "pastscape.read.v1";
+  var PANES_KEY = "pastscape.panes.v1";
+  var MIN_PANE = 60;   // mirrors the min-width/min-height of the panes in the CSS
+  var MIN_COL = 40;    // narrowest a list column can be dragged
 
   var app = {
     cfg: null,
@@ -41,6 +44,7 @@
     collapsed: {},        // threaded message groups
     treeCollapsed: {},    // collapsed folder branches
     read: {},
+    panes: {},            // pane sizes in px, keyed by splitter
     lastQuery: "",
     results: [],
     resultSel: -1
@@ -936,51 +940,175 @@
 
   // ================================================================== splitters
 
-  function initSplitter(handle, target, axis, invert) {
-    handle.addEventListener("mousedown", function (down) {
-      down.preventDefault();
-      var startPos = axis === "x" ? down.clientX : down.clientY;
-      var startSize = axis === "x" ? target.offsetWidth : target.offsetHeight;
-      document.body.style.cursor = axis === "x" ? "col-resize" : "row-resize";
+  var splitters = [];
 
-      function move(ev) {
-        var delta = (axis === "x" ? ev.clientX : ev.clientY) - startPos;
-        var size = startSize + (invert ? -delta : delta);
-        size = Math.max(60, size);
-        if (axis === "x") target.style.width = size + "px";
-        else { target.style.height = size + "px"; target.style.flex = "0 0 " + size + "px"; }
-        renderList();
-      }
-      function up() {
-        document.removeEventListener("mousemove", move);
-        document.removeEventListener("mouseup", up);
-        document.body.style.cursor = "";
-      }
-      document.addEventListener("mousemove", move);
-      document.addEventListener("mouseup", up);
+  function loadPanes() {
+    try { app.panes = JSON.parse(localStorage.getItem(PANES_KEY) || "{}"); }
+    catch (e) { app.panes = {}; }
+  }
+  var panesTimer = null;
+  function flushPanes() {
+    clearTimeout(panesTimer);
+    panesTimer = null;
+    try { localStorage.setItem(PANES_KEY, JSON.stringify(app.panes)); } catch (e) { /* full or blocked */ }
+  }
+  // A drag fires setPaneSize on every pointer move, so the writes are
+  // coalesced; the end of the drag flushes, because a reload a moment later
+  // must not throw the size away.
+  function savePanes() {
+    clearTimeout(panesTimer);
+    panesTimer = setTimeout(flushPanes, 400);
+  }
+
+  function paneSize(sp) {
+    return sp.horizontal ? sp.target.offsetWidth : sp.target.offsetHeight;
+  }
+
+  // The dragged pane is sized in pixels and its sibling takes whatever is
+  // left, so the range has to stop MIN_PANE short of the container: dragging
+  // to the very edge would otherwise squeeze the neighbour out of existence
+  // with no handle left to drag back.
+  function paneRange(sp) {
+    var box = sp.target.parentNode;
+    var total = sp.horizontal ? box.clientWidth : box.clientHeight;
+    var handle = sp.horizontal ? sp.handle.offsetWidth : sp.handle.offsetHeight;
+    return { min: MIN_PANE, max: Math.max(MIN_PANE, total - handle - MIN_PANE) };
+  }
+
+  function showPaneSize(sp, size) {
+    if (sp.horizontal) sp.target.style.width = size + "px";
+    else sp.target.style.flex = "0 0 " + size + "px";
+    sp.handle.setAttribute("aria-valuenow", String(size));
+  }
+
+  function setPaneSize(sp, size) {
+    var range = paneRange(sp);
+    size = Math.round(Math.max(range.min, Math.min(range.max, size)));
+    showPaneSize(sp, size);
+    app.panes[sp.key] = size;
+    savePanes();
+    renderList();
+  }
+
+  function resetPane(sp) {
+    if (sp.horizontal) sp.target.style.width = "";
+    else sp.target.style.flex = "";
+    delete app.panes[sp.key];
+    flushPanes();
+    sp.handle.setAttribute("aria-valuenow", String(paneSize(sp)));
+    renderList();
+  }
+
+  // A pane pinned to a pixel size has no idea the window shrank around it.
+  // Only the rendered size is clamped, never the remembered one, so widening
+  // the window back out restores the size that was actually asked for.
+  function clampPanes() {
+    splitters.forEach(function (sp) {
+      var want = app.panes[sp.key];
+      if (want == null) return;
+      var range = paneRange(sp);
+      showPaneSize(sp, Math.max(range.min, Math.min(range.max, want)));
     });
   }
 
+  function initSplitter(handle, target, axis, key) {
+    var sp = { handle: handle, target: target, horizontal: axis === "x", key: key };
+    splitters.push(sp);
+
+    handle.setAttribute("role", "separator");
+    handle.setAttribute("tabindex", "0");
+    handle.setAttribute("aria-orientation", sp.horizontal ? "vertical" : "horizontal");
+    handle.setAttribute("aria-label",
+      sp.horizontal ? "Resize folder pane" : "Resize message list");
+    if (app.panes[key] > 0) showPaneSize(sp, app.panes[key]);
+    else handle.setAttribute("aria-valuenow", String(paneSize(sp)));
+
+    // Pointer events rather than mouse events: one code path covers mouse,
+    // pen and touch, and the capture keeps the drag alive when the pointer
+    // outruns the 5px handle.
+    handle.addEventListener("pointerdown", function (down) {
+      if (down.pointerType === "mouse" && down.button !== 0) return;
+      down.preventDefault();
+      handle.setPointerCapture(down.pointerId);
+      handle.classList.add("dragging");
+      document.body.classList.add("ps-resizing");
+      document.body.style.cursor = sp.horizontal ? "col-resize" : "row-resize";
+
+      var startPos = sp.horizontal ? down.clientX : down.clientY;
+      var startSize = paneSize(sp);
+
+      function move(ev) {
+        setPaneSize(sp, startSize + (sp.horizontal ? ev.clientX : ev.clientY) - startPos);
+      }
+      function up(ev) {
+        handle.releasePointerCapture(ev.pointerId);
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", up);
+        handle.removeEventListener("pointercancel", up);
+        handle.classList.remove("dragging");
+        document.body.classList.remove("ps-resizing");
+        document.body.style.cursor = "";
+        flushPanes();
+      }
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointercancel", up);
+    });
+
+    handle.addEventListener("keydown", function (ev) {
+      var step = ev.shiftKey ? 40 : 8;
+      if (ev.key === (sp.horizontal ? "ArrowLeft" : "ArrowUp")) setPaneSize(sp, paneSize(sp) - step);
+      else if (ev.key === (sp.horizontal ? "ArrowRight" : "ArrowDown")) setPaneSize(sp, paneSize(sp) + step);
+      else if (ev.key === "Home" || ev.key === "End") resetPane(sp);
+      else return;
+      ev.preventDefault();
+    });
+
+    // Double-click drops the pane back to the size the stylesheet picked.
+    handle.addEventListener("dblclick", function () { resetPane(sp); });
+  }
+
+  function setColWidth(col, w) {
+    col.style.flexBasis = w + "px";
+    col.style.flexGrow = "0";
+  }
+
   function initColumnResize() {
+    var head = $("#ps-list-head");
     $$("#ps-list-head .grip").forEach(function (grip) {
-      grip.addEventListener("mousedown", function (down) {
+      grip.addEventListener("pointerdown", function (down) {
+        if (down.pointerType === "mouse" && down.button !== 0) return;
         down.preventDefault();
-        down.stopPropagation();
+        down.stopPropagation();      // the header itself sorts on click
+        grip.setPointerCapture(down.pointerId);
+        document.body.classList.add("ps-resizing");
+        document.body.style.cursor = "col-resize";
+
         var col = grip.parentNode;
         var startX = down.clientX;
         var startW = col.offsetWidth;
+
         function move(ev) {
-          var w = Math.max(40, startW + ev.clientX - startX);
-          col.style.flexBasis = w + "px";
-          col.style.flexGrow = "0";
+          var w = Math.max(MIN_COL, startW + ev.clientX - startX);
+          setColWidth(col, w);
+          // Trim back to whatever fits. The header strip does not scroll, so
+          // a column dragged wider than the pane would carry its own grip off
+          // the edge and there would be no way to drag it back.
+          var over = head.scrollWidth - head.clientWidth;
+          if (over > 0) setColWidth(col, Math.max(MIN_COL, w - over));
           renderList();
         }
-        function up() {
-          document.removeEventListener("mousemove", move);
-          document.removeEventListener("mouseup", up);
+        function up(ev) {
+          grip.releasePointerCapture(ev.pointerId);
+          grip.removeEventListener("pointermove", move);
+          grip.removeEventListener("pointerup", up);
+          grip.removeEventListener("pointercancel", up);
+          document.body.classList.remove("ps-resizing");
+          document.body.style.cursor = "";
         }
-        document.addEventListener("mousemove", move);
-        document.addEventListener("mouseup", up);
+        grip.addEventListener("pointermove", move);
+        grip.addEventListener("pointerup", up);
+        grip.addEventListener("pointercancel", up);
       });
     });
   }
@@ -1152,6 +1280,7 @@
 
   function boot() {
     loadRead();
+    loadPanes();
     status("Opening Pastscape…");
     progress(15);
     getJSON("data/folders.json").then(function (cfg) {
@@ -1175,11 +1304,12 @@
       initSortHeaders();
       initColumnResize();
       initKeys();
-      initSplitter($("#ps-split-v"), $("#ps-pane-tree"), "x", false);
-      initSplitter($("#ps-split-h"), $("#ps-pane-list"), "y", false);
+      initSplitter($("#ps-split-v"), $("#ps-pane-tree"), "x", "tree");
+      initSplitter($("#ps-split-h"), $("#ps-pane-list"), "y", "list");
 
       $("#ps-list-scroll").addEventListener("scroll", renderList, { passive: true });
-      window.addEventListener("resize", renderList);
+      window.addEventListener("resize", function () { clampPanes(); renderList(); });
+      window.addEventListener("pagehide", flushPanes);
 
       $("#ps-search-go").addEventListener("click", function () {
         app.lastQuery = $("#ps-search-input").value;
