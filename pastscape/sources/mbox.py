@@ -109,6 +109,42 @@ def iter_mbox_messages(stream: BinaryIO) -> Iterator[bytes]:
         yield b"".join(current)
 
 
+def iter_mbox_header_blocks(stream: BinaryIO) -> Iterator[bytes]:
+    """Yield each message's header block, reading past the bodies.
+
+    The separator rule has to be the same as :func:`iter_mbox_messages` -- the
+    body still has to be scanned, because that is where a line beginning "From "
+    can be mistaken for the start of the next message. What changes is that
+    none of it is kept: a report on who mail was addressed to has no use for a
+    60 MB attachment, and not accumulating one is most of why analysing an
+    archive is so much quicker than building it.
+    """
+    current: list[bytes] = []
+    in_headers = True
+    prev_blank = True
+    for line in stream:
+        if line.startswith(b"From ") and (prev_blank or _RE_FROM_LINE.match(line)):
+            if current:
+                yield b"".join(current)
+            current = []
+            in_headers = True
+            prev_blank = False
+            continue
+        if in_headers:
+            if line in _BLANK:
+                in_headers = False
+            else:
+                current.append(line)
+        prev_blank = line in _BLANK
+    if current:
+        yield b"".join(current)
+
+
+def open_mailbox(path: Path) -> BinaryIO:
+    """Open an mbox for reading, transparently decompressing it."""
+    return _OPENERS[sniff_compression(path)](path, "rb")
+
+
 # ---------------------------------------------------------------------------
 # Gmail labels
 # ---------------------------------------------------------------------------

@@ -43,6 +43,32 @@ FLAG_UNREAD = 4
 MAX_QUOTE_CHARS = 1400
 
 
+def listing_row(msg: Message) -> list:
+    """The compact row a folder listing carries, minus the leading uid.
+
+    Built once at read time and spilled with the message, so the pass that
+    writes the listings can sort and page through the whole archive without
+    ever unpacking a body.
+    """
+    flags = 0
+    if msg.has_attachments:
+        flags |= FLAG_ATTACH
+    if msg.flagged:
+        flags |= FLAG_FLAGGED
+    if msg.unread:
+        flags |= FLAG_UNREAD
+    return [
+        msg.subject,
+        msg.sender.name,
+        msg.sender.addr,
+        int(msg.date.timestamp()) if msg.date else 0,
+        msg.priority,
+        flags,
+        msg.thread_key(),
+        msg.size,
+    ]
+
+
 # ---------------------------------------------------------------------------
 # small helpers
 # ---------------------------------------------------------------------------
@@ -652,12 +678,21 @@ class SiteBuilder:
             shutil.copyfile(ASSETS / name, dest / name)
 
     # -- attachments -----------------------------------------------------
-    def write_attachments(self, msg: Message) -> list[str]:
+    def write_attachments(self, msg: Message) -> tuple[list[str], int]:
+        """Extract the blobs, returning (relative paths, how many were written).
+
+        This runs while the message is being read, because the payloads are the
+        single largest thing in memory and this is what lets them be dropped.
+        The uid is content-addressed, so a blob already sitting at the right
+        path with the right length is the same blob: on a rebuild the write is
+        skipped and only the href is recomputed.
+        """
         if not msg.attachments:
-            return []
+            return [], 0
         base = self.site / "attachments" / msg.uid[:2] / msg.uid
         base.mkdir(parents=True, exist_ok=True)
-        written: list[str] = []
+        rels: list[str] = []
+        wrote = 0
         seen: set[str] = set()
         for att in msg.attachments:
             name = att.filename
@@ -669,14 +704,16 @@ class SiteBuilder:
             seen.add(name.lower())
             path = base / name
             try:
-                path.write_bytes(att.payload)
+                if not (path.is_file() and path.stat().st_size == len(att.payload)):
+                    path.write_bytes(att.payload)
+                    wrote += 1
             except OSError as exc:
                 log.warning("could not write attachment %s: %s", path, exc)
                 continue
             rel = f"attachments/{msg.uid[:2]}/{msg.uid}/{quote(name)}"
             att.href = "../../" + rel  # message pages live two levels down
-            written.append(rel)
-        return written
+            rels.append(rel)
+        return rels, wrote
 
     # -- message page ----------------------------------------------------
     def message_meta(self, msg: Message, hash_: str, first_seen: str) -> dict:
@@ -723,29 +760,38 @@ class SiteBuilder:
         return rel
 
     # -- data files ------------------------------------------------------
-    def write_folder_data(self, folders: dict[str, list[Message]]) -> tuple[list[dict], list[list]]:
+    def publish_folders(self, folders: list[tuple[str, int, int]], rows_for):
+        """Write ``data/msgs/*.json``, yielding each message as it is listed.
+
+        ``folders`` is (path, message count, unread count) for the folders that
+        hold mail; ``rows_for(path)`` yields ``(uid, row)`` for one folder in
+        display order. Nothing is buffered: a folder with fifty thousand
+        messages is streamed row by row into its listing file.
+
+        Yields ``(path, slug, row_idx, uid)`` in publication order, which is
+        also the prev/next order on the message pages. The folder metadata is
+        left on ``self._folder_meta`` once the generator is exhausted.
+        """
         data_dir = self.site / "data" / "msgs"
         data_dir.mkdir(parents=True, exist_ok=True)
         for stale in data_dir.glob("*.json"):
             stale.unlink()
 
-        folder_meta: list[dict] = []
-        doc_locations: list[list] = []
-        ordered_messages: list[Message] = []
+        counts = {path: (n, unread) for path, n, unread in folders}
 
         # A nested label like "Projects/Pastscape" may have no message filed
         # directly under "Projects". Without a row for the parent, the child
         # renders at depth 1 with nothing above it and appears to belong to
         # whichever folder happens to precede it.
-        all_paths = set(folders)
+        all_paths = set(counts)
         for path in list(all_paths):
             parts = path.split("/")
             for depth in range(1, len(parts)):
                 all_paths.add("/".join(parts[:depth]))
 
+        folder_meta: list[dict] = []
         used_slugs: set[str] = set()
         for path in sorted(all_paths, key=folder_sort_key):
-            msgs = sorted(folders.get(path, []), key=lambda m: m.sort_key(), reverse=True)
             slug = slugify(path)
             base = slug
             n = 1
@@ -754,34 +800,22 @@ class SiteBuilder:
                 slug = f"{base}-{n}"
             used_slugs.add(slug)
 
-            rows = []
-            for idx, msg in enumerate(msgs):
-                flags = 0
-                if msg.has_attachments:
-                    flags |= FLAG_ATTACH
-                if msg.flagged:
-                    flags |= FLAG_FLAGGED
-                if msg.unread:
-                    flags |= FLAG_UNREAD
-                rows.append([
-                    msg.uid,
-                    msg.subject,
-                    msg.sender.name,
-                    msg.sender.addr,
-                    int(msg.date.timestamp()) if msg.date else 0,
-                    msg.priority,
-                    flags,
-                    msg.thread_key(),
-                    msg.size,
-                ])
-                doc_locations.append([slug, idx])
-                ordered_messages.append(msg)
+            written = 0
+            with (data_dir / f"{slug}.json").open("w", encoding="utf-8") as fh:
+                fh.write('{"slug":' + json.dumps(slug, ensure_ascii=False))
+                fh.write(',"path":' + json.dumps(path, ensure_ascii=False))
+                fh.write(',"rows":[')
+                if path in counts:
+                    for uid, row in rows_for(path):
+                        if written:
+                            fh.write(",")
+                        fh.write(json.dumps([uid] + row, separators=(",", ":"),
+                                            ensure_ascii=False))
+                        yield path, slug, written, uid
+                        written += 1
+                fh.write("]}")
 
-            (data_dir / f"{slug}.json").write_text(
-                json.dumps({"slug": slug, "path": path, "rows": rows},
-                           separators=(",", ":"), ensure_ascii=False),
-                "utf-8",
-            )
+            count, unread = counts.get(path, (0, 0))
             parent = "/".join(path.split("/")[:-1])
             folder_meta.append({
                 "slug": slug,
@@ -789,13 +823,12 @@ class SiteBuilder:
                 "name": path.split("/")[-1],
                 "depth": path.count("/"),
                 "parent": parent or None,
-                "count": len(msgs),
-                "unread": sum(1 for m in msgs if m.unread),
+                "count": count,
+                "unread": unread,
                 "file": f"data/msgs/{slug}.json",
             })
 
-        self._ordered_messages = ordered_messages
-        return folder_meta, doc_locations
+        self._folder_meta = folder_meta
 
     def write_folders_json(self, folder_meta: list[dict], total: int, built: str,
                            accounts: list[str] | None = None) -> None:

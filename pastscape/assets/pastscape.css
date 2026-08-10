@@ -572,7 +572,7 @@ img.ps-blocked-img {
 .ps-status-main { flex: 1 1 auto; min-width: 0; }
 .ps-status-cell svg { width: 13px; height: 13px; }
 .ps-progress {
-  width: 90px; height: 11px;
+  width: 90px; height: 16px;
   background: var(--window);
   border: 1px solid;
   border-color: var(--shadow) var(--hilight) var(--hilight) var(--shadow);

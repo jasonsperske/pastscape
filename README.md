@@ -81,6 +81,7 @@ pastscape build SOURCE [SOURCE ...] -o site [options]
       --folder-prefix PATH  nest everything under e.g. "Archive 2004"
       --no-year-folders     put Inbox/Sent at the root instead of grouping by year
       --account ADDRESS     give this address a mailbox tree of its own (repeatable)
+      --account-alias A=B   file mail for A under B, e.g. you+work@x=you@x
       --no-account-folders  do not split the tree by recipient address
       --news-host HOST      decorative news server in the tree, like the original
       --prune               delete pages for messages no longer in the sources
@@ -89,10 +90,71 @@ pastscape build SOURCE [SOURCE ...] -o site [options]
       --limit N             stop after N messages, for a quick look
       --serve [--port N]    serve the result when the build finishes
 
+pastscape analyze SOURCE [SOURCE ...]   which addresses receive mail
+                                        (headers only -- minutes, not hours)
+  --account-alias A=B       report A and B as one address (repeatable)
+  --top N                   only the N busiest addresses (0 for all, default 40)
+  --min N                   hide addresses below N messages
+  --limit N                 stop after N messages
+
 pastscape info site         what is published, per folder
 pastscape detect SOURCE     which reader would handle this
 pastscape serve site        preview an already-built archive
 ```
+
+## Deciding which mailboxes you have
+
+`analyze` answers "which of my addresses actually receive mail" without
+building anything. It reads the headers and skips every body, so a
+twenty-gigabyte mbox takes about a minute and 45 MB of memory rather than the
+best part of an hour:
+
+```
+$ pastscape analyze takeout.mbox --top 4
+
+302,041 messages from takeout.mbox (mbox)
+
+address                                       messages  delivered      to/cc       from
+---------------------------------------------------------------------------------------
+you@example.com                                290,634    288,069    205,584      4,485
+feedback@side-project.com                       40,842         33     40,836        324
+announce@list.example.org                       24,084     24,084     24,069        130
+subscribed@noreply.github.com                    5,831          0      5,831          0
+```
+
+The two middle columns answer different questions, and confusing them will send
+you down the wrong path:
+
+- **messages** — the address appears anywhere on the message. This is what
+  `--account` matches on.
+- **delivered** — the address appears in a header the *server* wrote. This is
+  what mailbox inference keys on.
+
+Look at the second row. That address is on 40,842 messages but is a delivery
+address on 33 of them: mail is *addressed* to it and *delivered* somewhere
+else, which is what an alias looks like. Inference will never give it a root
+however large it grows, because inference only ever sees the 33. Naming it with
+`--account` is the only thing that will.
+
+Counts are per message, not per header line — an address in both `Delivered-To`
+and `X-Apparently-To` is one message, which matters because counting lines
+makes a mailing list look twice its real size.
+
+### Folding aliases together
+
+`--account-alias ALIAS=ADDRESS` files one address under another. It applies to
+`analyze` and to `build` alike, so a report and the tree it predicts agree:
+
+```bash
+pastscape analyze takeout.mbox \
+    --account-alias you+shopping@example.com=you@example.com \
+    --account-alias you+lists@example.com=you@example.com
+```
+
+Chains are followed (`a=b` with `b=c` files `a` under `c`), and a cycle stops
+rather than hanging. Aliasing is the opposite of `--account`: use `--account`
+to pull an address *out* into its own root, and `--account-alias` to fold one
+*in* to another.
 
 ### The folder tree
 
@@ -124,12 +186,30 @@ rather than splitting off a handful of oddities.
 
 Name your addresses explicitly with `--account` when the guess is wrong — a
 message then belongs to a mailbox if *any* of its addresses (To, Cc, From,
-Reply-To or a delivery header) matches:
+Reply-To or a delivery header) matches, and mail matching none of them goes to
+`Other Recipients`:
 
 ```bash
 pastscape build old.pst work.pst -o site \
     --account jason@example.com --account jason@work.example.com
 ```
+
+**The order is a priority order**, because a message routinely matches more
+than one: plus-addressed mail to `jason+imdb@example.com` is normally delivered
+to `jason@example.com` as well, and both are on the message. The first
+`--account` to match wins, so a specific alias has to be listed *ahead* of the
+address it forwards to:
+
+```bash
+pastscape build takeout.mbox -o site \
+    --account jason+imdb@example.com \
+    --account jason+shopping@example.com \
+    --account jason@example.com          # the catch-all goes last
+```
+
+Listing the bare address first would swallow every alias under it. This also
+means an alias too small for inference to notice — a few dozen messages in a
+few hundred thousand — still gets a root of its own if you name it.
 
 `--no-account-folders` puts the years back at the root.
 
@@ -196,6 +276,46 @@ carries its own metadata block:
 So if the manifest is lost — deleted, or the site was copied without it —
 Pastscape rebuilds it by reading the pages back, and the next run is still
 incremental. `pastscape info` on a manifest-less site does the same.
+
+## Large archives
+
+A full Google Takeout mbox is routinely 20 GB and several hundred thousand
+messages. Nothing in a build scales with that: the sources are streamed into a
+SQLite scratch file as they are read, and every later stage — mailbox
+inference, folder listings, rendering, the search index — queries that file
+instead of a list in memory. A 300,000-message archive and a 300-message one
+cost about the same resident memory.
+
+Measured on one Takeout mbox, building slices of it on a 7 GB laptop:
+
+| messages | first build | re-run | site |
+|---------:|------------:|-------:|-----:|
+| 10 000 | 283 MiB, 3m 15s | 276 MiB, 1m 02s | 0.9 GB |
+| 80 000 | 445 MiB, 24m 30s | 653 MiB, 8m 31s | 6.9 GB |
+
+Eight times the messages costs about 160 MiB more, and that residue is the
+manifest — the one structure still held whole, at under a kilobyte per message,
+which is why a re-run (holding both the old manifest and the new one) costs
+more than a first build. Everything else is bounded: `-vv` prints resident and
+peak at each pass boundary, and the passes after ingest add nothing.
+
+One detail worth knowing if you profile it yourself: the peak is sensitive to
+the *largest single message*, not the count. A mail with several 60 MB
+attachments costs more while it is being parsed than a hundred thousand
+ordinary ones do at rest.
+
+What this means in practice:
+
+- **Disk is the constraint, not memory.** Budget roughly the size of the mbox
+  again for the site, plus a scratch file of about a fifth of it while the
+  build runs. The scratch lives at `site/.pastscape-build/` and is deleted when
+  the build finishes; a build killed halfway leaves it behind, and it is always
+  safe to delete.
+- **Time scales with the source, not the site.** A re-run still reads every
+  source from the start — incremental means unchanged pages are not rewritten,
+  not that the mbox is not re-read.
+- `--limit N` stops after N messages, which is the quick way to see what an
+  archive will look like before committing hours to it.
 
 ## Output layout
 

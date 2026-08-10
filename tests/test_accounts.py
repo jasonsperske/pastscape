@@ -227,3 +227,27 @@ def test_rebuild_stays_incremental_with_accounts(tmp_path, two_mailboxes):
     again = build_site([two_mailboxes], out, title="Local Mail")
     assert first.added == 9
     assert again.added == 0 and again.unchanged == 9
+
+
+def test_the_first_account_given_wins_a_tie():
+    """Plus-addressed alias mail names the bare address too; order decides."""
+    msg = make(to="jason+imdb@example.com", uid="1")
+    msg.headers.append(("Delivered-To", "jason@example.com"))
+
+    alias_first = assign_accounts(
+        [msg], explicit=["jason+imdb@example.com", "jason@example.com"])
+    assert alias_first["1"] == "jason+imdb@example.com"
+
+    bare_first = assign_accounts(
+        [msg], explicit=["jason@example.com", "jason+imdb@example.com"])
+    assert bare_first["1"] == "jason@example.com"
+
+
+def test_tie_breaking_is_stable_across_runs():
+    """Set iteration order must not decide which mailbox a message lands in."""
+    explicit = ["a@example.com", "b@example.com", "c@example.com"]
+    seen = set()
+    for _ in range(50):
+        msg = make(to=["c@example.com", "b@example.com", "a@example.com"], uid="1")
+        seen.add(assign_accounts([msg], explicit=explicit)["1"])
+    assert seen == {"a@example.com"}

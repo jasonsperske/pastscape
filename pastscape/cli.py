@@ -8,7 +8,9 @@ import sys
 from pathlib import Path
 
 from . import __version__
+from .analyze import analyze, format_report, parse_aliases
 from .builder import build_site
+from .model import OTHER_ACCOUNT
 from .sources import detect_source
 from .state import Manifest
 
@@ -62,6 +64,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         year_folders=args.year_folders,
         accounts=args.account,
         account_folders=args.account_folders,
+        account_aliases=args.account_alias,
     )
 
     print(f"\nPastscape: {stats.summary()}")
@@ -75,6 +78,25 @@ def cmd_build(args: argparse.Namespace) -> int:
     if args.serve:
         _serve(site, args.port)
     return 1 if stats.errors and stats.total == 0 else 0
+
+
+def cmd_analyze(args: argparse.Namespace) -> int:
+    sources = [Path(s).expanduser() for s in args.source]
+    missing = [str(s) for s in sources if not s.exists()]
+    if missing:
+        print(f"error: no such file or directory: {', '.join(missing)}", file=sys.stderr)
+        return 2
+
+    try:
+        aliases = parse_aliases(args.account_alias)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    kinds = {src: args.type for src in sources} if args.type else {}
+    report = analyze(sources, kinds=kinds, aliases=aliases, limit=args.limit)
+    print(format_report(report, top=args.top, min_messages=args.min_messages))
+    return 1 if report.errors and not report.messages else 0
 
 
 def cmd_info(args: argparse.Namespace) -> int:
@@ -174,7 +196,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="do not group the tree by year; put Inbox, Sent etc. at the root")
     b.add_argument("--account", action="append", metavar="ADDRESS", default=[],
                    help="your address, giving it a mailbox tree of its own. Repeatable; "
-                        "when omitted the mailboxes are inferred from the mail")
+                        "when omitted the mailboxes are inferred from the mail. "
+                        "Mail matching none of them goes to '" + OTHER_ACCOUNT + "'. "
+                        "Order is priority: list a specific alias before the address "
+                        "it forwards to, or its mail will be filed under the latter")
     b.add_argument("--no-account-folders", dest="account_folders", action="store_false",
                    help="do not split the tree by recipient address")
     b.add_argument("--news-host", default="",
@@ -189,6 +214,30 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--serve", action="store_true", help="serve the site after building")
     b.add_argument("--port", type=int, default=8000)
     b.set_defaults(func=cmd_build)
+
+    ALIAS_HELP = ("fold one address into another, e.g. "
+                  "'you+work@example.com=you@example.com', so their counts are "
+                  "reported together and they file under one mailbox. Repeatable; "
+                  "chains are followed")
+
+    a = sub.add_parser("analyze", parents=[common],
+                       help="report which addresses receive mail, without building")
+    a.add_argument("source", nargs="+",
+                   help="the same sources you would pass to build")
+    a.add_argument("--type", choices=["pst", "eml", "mbox", "mbox-compressed",
+                                      "mbox-archive", "maildir", "eml-file"],
+                   help="force the source reader instead of sniffing")
+    a.add_argument("--account-alias", action="append", metavar="ALIAS=ADDRESS",
+                   default=[], help=ALIAS_HELP)
+    a.add_argument("--top", type=int, default=40,
+                   help="show only the N busiest addresses (0 for all, default: 40)")
+    a.add_argument("--min", type=int, default=1, dest="min_messages",
+                   metavar="N", help="hide addresses with fewer than N messages")
+    a.add_argument("--limit", type=int, default=0, help="stop after N messages")
+    a.set_defaults(func=cmd_analyze)
+
+    b.add_argument("--account-alias", action="append", metavar="ALIAS=ADDRESS",
+                   default=[], help=ALIAS_HELP)
 
     i = sub.add_parser("info", parents=[common], help="summarise a published archive")
     i.add_argument("site", nargs="?", default="site")

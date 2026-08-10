@@ -50,7 +50,9 @@ def content_hash(msg: Message) -> str:
     return h.hexdigest()[:16]
 
 
-@dataclass
+# slots: an archive of a few hundred thousand messages holds one of these per
+# message twice over -- what was published and what is about to be.
+@dataclass(slots=True)
 class MessageRecord:
     uid: str
     folder: str
@@ -142,18 +144,33 @@ class Manifest:
         return man
 
     def save(self, site_dir: Path) -> None:
-        payload = {
-            "version": self.version,
-            "generator": self.generator,
-            "built": self.built or datetime.now(timezone.utc).isoformat(timespec="seconds"),
-            "title": self.title,
-            "sources": self.sources,
-            "files": self.files,
-            "messages": {uid: rec.as_json() for uid, rec in sorted(self.messages.items())},
-        }
+        """Write the manifest a record at a time.
+
+        Serialising the whole thing first would mean holding every record's
+        JSON *and* the finished text alongside the records themselves; for a
+        large archive that is several hundred megabytes for no reason. One
+        message per line also makes the file diffable and greppable.
+        """
         site_dir.mkdir(parents=True, exist_ok=True)
         tmp = site_dir / (MANIFEST_NAME + ".tmp")
-        tmp.write_text(json.dumps(payload, indent=1, sort_keys=False), "utf-8")
+        head = [
+            ("version", self.version),
+            ("generator", self.generator),
+            ("built", self.built or datetime.now(timezone.utc).isoformat(timespec="seconds")),
+            ("title", self.title),
+            ("sources", self.sources),
+            ("files", self.files),
+        ]
+        with tmp.open("w", encoding="utf-8") as fh:
+            fh.write("{\n")
+            for key, value in head:
+                fh.write(f" {json.dumps(key)}: {json.dumps(value, indent=1)},\n")
+            fh.write(' "messages": {')
+            for n, uid in enumerate(sorted(self.messages)):
+                record = json.dumps(self.messages[uid].as_json(),
+                                    separators=(",", ":"))
+                fh.write(("," if n else "") + f'\n  {json.dumps(uid)}: {record}')
+            fh.write("\n }\n}\n")
         tmp.replace(site_dir / MANIFEST_NAME)
 
 
